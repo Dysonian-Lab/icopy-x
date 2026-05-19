@@ -1,0 +1,9 @@
+{
+    "name": "PAC Clone & Lock",
+    "version": "1.0.0",
+    "author": "Amec0e",
+    "description": "Scan PAC tag, dump it, write to T55xx with optional password lock",
+    "entry_class": "PACCloneLockPlugin",
+    "permissions": ["pm3"],
+    "order": 2
+}
