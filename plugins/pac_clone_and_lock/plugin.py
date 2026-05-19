@@ -20,11 +20,11 @@ Workflow
 2. do_dump()         -- lfread.readPAC(save=True) -> saves to /mnt/upan/dump/pac/
 3. do_write()        -- lfwrite.write_raw() no password, plain clone
 4. do_write_pwd()    -- capture password from input widget, store, transition
-5. do_write_actual() -- wipe -> detect -> write_raw() plain B0 (no password)
-                        -> write block 7 with password (tag still unlocked)
-                        -> verify block 7 -> write block 0 with PWD bit set
-                        (00080080 | 0x10 = 00080090, no -p, tag unlocked)
-                        -> verify block 0 with -p (confirms lock active)
+5. do_write_actual() -- wipe -> detect -> lf pac clone --raw (writes all
+                        blocks + plain B0 00080080, PM3 verifies) -> write
+                        block 7 with password (no -p, tag unlocked) ->
+                        write block 0 with PWD bit set 00080090 (no -p) ->
+                        lf t55xx detect -p <pwd> (real lock verify)
 
 PAC B0 config: 00080080 (NRZ, data rate 32, 4 data blocks)
 PAC B0 locked: 00080090 (same + T55x7_PWD bit 28 set)
@@ -164,12 +164,14 @@ class PACCloneLockPlugin(object):
         """Write PAC clone with password lock.
 
         Sequence:
-          1. wipe -> detect
-          2. write_raw() with plain PAC B0 — no password (tag unlocked)
+          1. wipe -> detect (confirm blank T55xx)
+          2. lf pac clone --raw <raw> (writes + verifies all data blocks
+             with plain PAC B0 00080080)
           3. write block 7 with password — no -p (tag still unlocked)
-          4. verify block 7 read (confirms password landed)
-          5. write block 0 with PWD bit set — no -p (tag still unlocked)
-          6. verify block 0 read with -p (proves lock is now active)
+          4. write block 0 with PWD bit set 00080090 — no -p (tag still
+             unlocked; PWD bit activates once block 7 has the password)
+          5. lf t55xx detect -p <pwd> — real verify: tag must authenticate
+             to respond; absence of modulation error confirms lock is active
         """
         self.host.set_var('error_msg', '')
         self.host.set_var('done_msg', '')
@@ -185,7 +187,6 @@ class PACCloneLockPlugin(object):
             return {'status': 'error'}
 
         try:
-            import lfwrite
             import executor
         except ImportError:
             self.host.set_var('error_msg', 'Import error')
@@ -198,10 +199,10 @@ class PACCloneLockPlugin(object):
             self.host.set_var('error_msg', 'T55xx not detected')
             return {'status': 'error'}
 
-        # Step 2: write clone data with plain PAC B0 — no password
-        ret = lfwrite.write_raw(_tagtypes.PAC_ID, raw, key=None)
-        if ret == -1:
-            self.host.set_var('error_msg', 'Write failed')
+        # Step 2: clone all PAC data blocks with plain B0 (writes + verifies)
+        ret = executor.startPM3Task('lf pac clone --raw %s' % raw, 15000)
+        if ret == -1 or not executor.hasKeyword('Done'):
+            self.host.set_var('error_msg', 'Clone failed')
             return {'status': 'error'}
 
         # Step 3: write password to block 7 (tag still unlocked)
@@ -209,13 +210,6 @@ class PACCloneLockPlugin(object):
             'lf t55xx write -b 7 -d %s' % pwd, 15000)
         if ret == -1:
             self.host.set_var('error_msg', 'Set pwd failed')
-            return {'status': 'error'}
-
-        # Step 3 verify: read block 7 back to confirm password was written
-        # Mirrors t55xxProtect() in cmdlft55xx.c (t55xxVerifyWrite on PWD_BLOCK)
-        ret = executor.startPM3Task('lf t55xx read -b 7', 10000)
-        if ret == -1:
-            self.host.set_var('error_msg', 'Pwd verify failed')
             return {'status': 'error'}
 
         # Step 4: write block 0 with PWD bit set (tag still unlocked —
@@ -226,12 +220,12 @@ class PACCloneLockPlugin(object):
             self.host.set_var('error_msg', 'Lock bit failed')
             return {'status': 'error'}
 
-        # Step 4 verify: read block 0 using password — proves lock is active
-        # Mirrors t55xxProtect() in cmdlft55xx.c (t55xxVerifyWrite on CONFIGURATION_BLOCK
-        # with override=0, usepwd=true — tag must now authenticate to respond)
-        ret = executor.startPM3Task(
-            'lf t55xx read -b 0 -p %s' % pwd, 10000)
-        if ret == -1:
+        # Step 5: verify lock is active — tag must authenticate with password
+        # to respond to detect. If wrong/no password: "Could not detect
+        # modulation automatically". Correct password: Block0 00080090 +
+        # "Password set...... Yes"
+        executor.startPM3Task('lf t55xx detect -p %s' % pwd, 10000)
+        if executor.hasKeyword('Could not detect modulation automatically'):
             self.host.set_var('error_msg', 'Lock verify failed')
             return {'status': 'error'}
 
