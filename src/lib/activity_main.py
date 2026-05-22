@@ -5958,6 +5958,8 @@ SIM_MAP = [
     ('Nedap ID',      32, 'LF', 'lf_nedap',  'nedap',   'lf nedap sim --st {} --cc {} --id {}'),
     ('FDX-B Animal',  28, 'LF', 'lf_fdx_a',  'fdx',     'lf fdxb sim --country {} --national {} --animal'),
     ('FDX-B Data',    28, 'LF', 'lf_fdx_d',  'fdx',     'lf fdxb sim --country {} --national {} --extended {}'),
+    # NOTE: Noralsy sim works iCopy > Flipper Zero but RDV4 cannot detect.
+    ('Noralsy ID',    33, 'LF', 'lf_noralsy', 'cn',     'lf noralsy sim --cn {} --year {}'),
 ]
 
 # QEMU-verified defaults from real .so binary (sim_common.sh lines 203-210).
@@ -6003,6 +6005,12 @@ SIM_FIELDS = {
     'lf_fdx_d':  [('Country:', '999', 'dec', 999),        # 10-bit ISO 11784, max 999 usable
                   ('NC:',  '112233445566', 'dec', 274877906943),  # 38-bit ISO 11784 national ID
                   ('Animal Bit:', '0', 'dec', 1)],         # 1-bit animal application indicator
+    # Noralsy CN: BCD-encoded decimal, max 7 digits (getnoralsyBits DEC2BCD limit).
+    # Noralsy Year: 2-digit BCD stored in 8 bits; iceman adds 1900/2000 offset
+    # (year > 60 ? 1900 : 2000), giving usable range 1961-2059. UI bounded to
+    # 2099 for simplicity — values beyond 2059 will fold back via iceman offset.
+    'lf_noralsy': [('CN:',   '1234567', 'dec', 9999999),
+                   ('Year:', '2000',    'dec', 2099)],
 }
 
 # Initialize _SIMULATE_TYPES from SIM_MAP (audit finding 3)
@@ -6188,6 +6196,7 @@ class SimulationActivity(BaseActivity):
             'Country:': ('country',),
             'NC:':  ('nc',),
             'Version:': ('vn',),   # IO Prox XSF version field
+            'Year:': ('year',),    # Noralsy year field
         }
         # Per-tag override key (field 0 only): SIM_MAP entry[4] names the
         # cache field this tag's prepop should pull from.  Necessary for
@@ -8194,6 +8203,14 @@ class ReadFromHistoryActivity(BaseActivity):
                 if len(parts) == 2:
                     cache['country'] = parts[0]
                     cache['nc'] = parts[1]
+            # Noralsy filename encodes CN-Year (e.g. Noralsy-ID_133778-2026_1.txt).
+            # Split data into cn + year so sim field prepopulation works,
+            # mirroring what lfsearch.py does for a live scan (Check 20).
+            if dtk == 'noralsy' and data and '-' in data:
+                parts = data.split('-', 1)
+                if len(parts) == 2:
+                    cache['cn']   = parts[0]
+                    cache['year'] = parts[1]
         elif dtk == 'felica':
             cache['uid'] = info.get('uid', '')
         elif dtk in ('icode', 'hf14a'):
