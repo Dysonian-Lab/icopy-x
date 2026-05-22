@@ -400,7 +400,44 @@ def readNedap(listener=None, infos=None, save=True):
 
 
 def readNoralsy(listener=None, infos=None, save=True):
-    return readCardIdAndRaw('lf noralsy reader', typ=33, save=save)
+    """Read a Noralsy tag and save the dump.
+
+    cmdlfnoralsy.c:106 emits:
+        "Noralsy - Card: %u, Year: %u, Raw: %08X%08X%08X"
+    CN and Year are both decimal; Raw is 24 hex chars.
+
+    readCardIdAndRaw cannot capture Year — REGEX_CARD_ID only extracts
+    the card number and has no awareness of the Year field on the same line.
+    This dedicated function captures CN via REGEX_NORALSY_CN and Year via
+    REGEX_NORALSY_YEAR, then stores them as "CN-Year" in the filename
+    (e.g. Noralsy-ID_133778-2026_1.txt) so tag info can recover both
+    values without touching the file content, which remains raw hex only
+    and is unaffected by the write path.
+    """
+    ret = executor.startPM3Task('lf noralsy reader', TIMEOUT)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+    cn   = executor.getContentFromRegexG(lfsearch.REGEX_NORALSY_CN, 1)
+    year = executor.getContentFromRegexG(lfsearch.REGEX_NORALSY_YEAR, 1)
+    raw  = executor.getContentFromRegexG(lfsearch.REGEX_RAW, 1)
+    if raw:
+        raw = lfsearch.cleanHexStr(raw.strip())
+    # Build uid as "CN-Year" for filename encoding. Falls back to CN alone
+    # if year is missing, and to raw if neither is present.
+    if cn and year:
+        uid = '%s-%s' % (cn, year)
+    elif cn:
+        uid = cn
+    else:
+        uid = None
+    if uid or raw:
+        if save:
+            _save_txt(33, uid, raw)
+        return createRetObj(uid, raw, 1)
+    return createRetObj(None, None, -1)
 
 
 def readPAC(listener=None, infos=None, save=True):
