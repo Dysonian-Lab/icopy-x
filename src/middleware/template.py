@@ -337,6 +337,9 @@ def __drawID(data, parent):
         elif typ == 10:
             # Indala: prefix with 'RAW: '
             display_line = 'RAW: {}'.format(data_val)
+        elif typ == 33:
+            # Noralsy: data is 'CN-Year' — display with CN/YR: label
+            display_line = 'CN/YR: {}'.format(data_val)
         else:
             # Standard ID: prefix with 'UID: '
             display_line = 'UID: {}'.format(data_val)
