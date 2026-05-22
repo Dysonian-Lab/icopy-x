@@ -88,6 +88,13 @@ REGEX_ANIMAL = r'Animal ID\.+\s+([0-9\-]+)'
 # Card/ID/UID prefixes) because "Internal ID:" has a qualifying prefix.
 REGEX_KERI_ID = r'Internal ID:\s+(\d+)'
 
+# Iceman demodNoralsy @ cmdlfnoralsy.c:106 emits:
+#   "Noralsy - Card: %u, Year: %u, Raw: %08X%08X%08X"
+# Dedicated regexes to capture CN and Year independently rather than
+# relying on the generic REGEX_CARD_ID which cannot distinguish Year.
+REGEX_NORALSY_CN   = r'Noralsy\s*-\s*Card:\s*(\d+)'
+REGEX_NORALSY_YEAR = r'Noralsy\s*-\s*Card:\s*\d+,\s*Year:\s*(\d+)'
+
 # Iceman per-tag demod labels: Viking "Card <hex>" (cmdlfviking.c:57, no colon),
 # Jablotron/Noralsy/Paradox "Card: <u>" or "ID: <hex>" (cmdlfjablotron.c:98,
 # cmdlfparadox.c:224). Tolerant to both `Card `/`Card:` within iceman native forms.
@@ -645,7 +652,16 @@ def parser():
     # Check 20: Noralsy
     if executor.hasKeyword('Valid Noralsy ID'):
         seaObj = {}
-        setUID(seaObj)
+        cn   = executor.getContentFromRegexG(REGEX_NORALSY_CN, 1)
+        year = executor.getContentFromRegexG(REGEX_NORALSY_YEAR, 1)
+        if cn:
+            seaObj['cn'] = cn
+        if cn and year:
+            seaObj['data'] = '%s-%s' % (cn, year)  # __drawID renders "UID: CN-Year"
+        elif cn:
+            seaObj['data'] = cn
+        if year:
+            seaObj['year'] = year
         setRAW(seaObj)
         seaObj['type'] = tagtypes.NORALSY_ID
         seaObj['found'] = True
