@@ -1,0 +1,170 @@
+{
+    "plugin": true,
+    "name": "T55xx Block Writer",
+    "version": "1.0.0",
+    "initial_state": "warning",
+    "states": {
+        "warning": {
+            "on_enter": "run:do_init",
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "WARNING!",                      "size": "large",  "align": "center"},
+                        {"text": ""},
+                        {"text": "Writing blocks can make a tag", "size": "normal", "align": "center"},
+                        {"text": "unreadable or unrecoverable.",  "size": "normal", "align": "center"},
+                        {"text": ""},
+                        {"text": "If you understand the risks",   "size": "normal", "align": "center"},
+                        {"text": "press M2 to continue,",        "size": "normal", "align": "center"},
+                        {"text": "otherwise press Back.",         "size": "normal", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "I Understand"},
+                "keys": {
+                    "M1": "finish",
+                    "M2": "set_state:idle"
+                }
+            }
+        },
+        "idle": {
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Block to write",    "size": "normal", "align": "center"},
+                        {"text": ""},
+                        {"text": "{block_num}",        "size": "xlarge", "align": "center"},
+                        {"text": ""},
+                        {"text": "UP/RIGHT to cycle", "size": "normal", "align": "center"},
+                        {"text": "OK/M2 to confirm",  "size": "normal", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Confirm"},
+                "keys": {
+                    "UP":    "run:do_cycle",
+                    "RIGHT": "run:do_cycle",
+                    "DOWN":  "noop",
+                    "LEFT":  "noop",
+                    "OK":    "run:do_confirm",
+                    "M2":    "run:do_confirm",
+                    "M1":    "finish"
+                }
+            },
+            "transitions": {
+                "on_result.status==confirmed": "input_data"
+            }
+        },
+        "input_data": {
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Enter data to write",
+                    "length": 8,
+                    "placeholder": "00000000"
+                },
+                "buttons": {"left": "Back", "right": "Next"},
+                "keys": {
+                    "OK": "run:do_capture_data",
+                    "M2": "run:do_capture_data",
+                    "M1": "set_state:idle"
+                }
+            },
+            "transitions": {
+                "on_result.status==captured": "input_pwd_choice",
+                "on_result.status==error":    "error",
+                "on_error":                   "error"
+            }
+        },
+        "input_pwd_choice": {
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Block: {selected_block}", "size": "normal", "align": "center"},
+                        {"text": "Data:  {data}",           "size": "normal", "align": "center"},
+                        {"text": ""},
+                        {"text": "Use password?",           "size": "normal", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "No Pwd", "right": "With Pwd"},
+                "keys": {
+                    "OK": "run:do_write",
+                    "M1": "run:do_write",
+                    "M2": "set_state:input_pwd"
+                }
+            },
+            "transitions": {
+                "on_result.status==done":  "done",
+                "on_result.status==error": "error",
+                "on_error":                "error"
+            }
+        },
+        "input_pwd": {
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Enter password",
+                    "length": 8,
+                    "placeholder": "00000000"
+                },
+                "buttons": {"left": "Back", "right": "Write"},
+                "keys": {
+                    "OK": "run:do_write_pwd",
+                    "M2": "run:do_write_pwd",
+                    "M1": "set_state:input_pwd_choice"
+                }
+            },
+            "transitions": {
+                "on_result.status==done":  "done",
+                "on_result.status==error": "error",
+                "on_error":                "error"
+            }
+        },
+        "done": {
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Write OK!",              "size": "large",  "align": "center"},
+                        {"text": ""},
+                        {"text": "Block {selected_block}", "size": "large",  "align": "center"},
+                        {"text": "Data: {data}",           "size": "normal", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Again"},
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        },
+        "error": {
+            "screen": {
+                "title": "T55xx Block Writer",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Write failed",         "size": "large",  "align": "center"},
+                        {"text": ""},
+                        {"text": "Check tag present",    "size": "normal", "align": "center"},
+                        {"text": "and password correct", "size": "normal", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Retry"},
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        }
+    }
+}
