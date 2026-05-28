@@ -330,10 +330,15 @@ def __drawID(data, parent):
     display_line = None
 
     if data_val:
-        # FC,CN, XSF, and Country lines are already formatted — show directly
-        if (data_val.startswith('FC,CN:') or data_val.startswith('XSF(')
-                or data_val.startswith('Country:')):
+        # FC,CN and XSF lines are already formatted — show directly
+        if data_val.startswith('FC,CN:') or data_val.startswith('XSF('):
             display_line = data_val
+        elif typ == 28:
+            # FDX-B: build Country: label from country key in cache
+            # data holds CCC-NNNNNN for verification — use country key
+            # for display to match live scan rendering
+            country = data.get('country', '')
+            display_line = 'Country: {}'.format(country) if country else 'UID: {}'.format(data_val)
         elif typ == 10:
             # Indala: prefix with 'RAW: '
             display_line = 'RAW: {}'.format(data_val)
