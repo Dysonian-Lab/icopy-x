@@ -1,0 +1,489 @@
+{
+    "plugin": true,
+    "name": "LF Clone & Pwd",
+    "version": "1.0.0",
+    "initial_state": "info",
+    "states": {
+        "info": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Pwd bit supported:",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "HID Indala AWID IOProx",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "GProx Viking Pyramid",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "Jablotron Noralsy PAC",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "FDX-B KERI Securakey",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "Gallagher Paradox",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "NexWatch",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "All others clone only",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Next"
+                },
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        },
+        "idle": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Place source LF tag",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "on reader",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Press OK to scan",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Scan"
+                },
+                "keys": {
+                    "OK": "set_state:scanning",
+                    "M2": "set_state:scanning",
+                    "M1": "finish"
+                }
+            }
+        },
+        "scanning": {
+            "on_enter": "run:do_scan",
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Scanning LF tag...",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Please wait",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==found": "scan_result",
+                "on_result.status==found_no_lock": "scan_result_no_lock",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "scan_result": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "{tag_name}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "{tag_id}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Dump & continue?",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Cancel",
+                    "right": "Next"
+                },
+                "keys": {
+                    "OK": "set_state:dumping",
+                    "M2": "set_state:dumping",
+                    "M1": "set_state:idle"
+                }
+            }
+        },
+        "scan_result_no_lock": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "{tag_name}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "{tag_id}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Clone only (no lock)",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "Dump & continue?",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Cancel",
+                    "right": "Next"
+                },
+                "keys": {
+                    "OK": "set_state:dumping_no_lock",
+                    "M2": "set_state:dumping_no_lock",
+                    "M1": "set_state:idle"
+                }
+            }
+        },
+        "dumping": {
+            "on_enter": "run:do_dump",
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Saving dump...",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Please wait",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "swap",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "dumping_no_lock": {
+            "on_enter": "run:do_dump",
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Saving dump...",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Please wait",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "swap_no_lock",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "swap": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Remove source tag",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "Place blank T55xx",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "on reader",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Write with password?",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "No Pwd",
+                    "right": "Set Pwd"
+                },
+                "keys": {
+                    "OK": "set_state:input_pwd",
+                    "M2": "set_state:input_pwd",
+                    "M1": "set_state:writing"
+                }
+            }
+        },
+        "swap_no_lock": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Remove source tag",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "Place blank T55xx",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "on reader",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Lock not supported",
+                            "size": "normal"
+                        },
+                        {
+                            "text": "for this tag type",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Cancel",
+                    "right": "Write"
+                },
+                "keys": {
+                    "OK": "set_state:writing",
+                    "M2": "set_state:writing",
+                    "M1": "set_state:idle"
+                }
+            }
+        },
+        "input_pwd": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Password to set",
+                    "length": 8,
+                    "placeholder": "00000000"
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Set"
+                },
+                "keys": {
+                    "OK": "run:do_write_pwd",
+                    "M2": "run:do_write_pwd",
+                    "M1": "set_state:swap"
+                }
+            },
+            "transitions": {
+                "on_result.status==writing": "writing_pwd",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "writing_pwd": {
+            "on_enter": "run:do_write_actual",
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Writing with password",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Please wait...",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "done",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "writing": {
+            "on_enter": "run:do_write",
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Writing to T55xx...",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Please wait",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "done",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "done": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Clone complete!",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "{done_msg}",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Again"
+                },
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        },
+        "error": {
+            "screen": {
+                "title": "LF Clone & Pwd",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "{error_msg}",
+                            "size": "normal"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Press OK to retry",
+                            "size": "normal"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Again"
+                },
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        }
+    }
+}
