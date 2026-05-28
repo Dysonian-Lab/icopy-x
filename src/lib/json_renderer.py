@@ -422,8 +422,8 @@ class JsonRenderer:
             size = line_def.get('size', 'normal')
             align = line_def.get('align', 'left')
             color = line_def.get('color', NORMAL_TEXT_COLOR)
-            font_sizes = {'normal': 10, 'large': 13, 'xlarge': 28}
-            line_heights = {'normal': 16, 'large': 19, 'xlarge': 34}
+            font_sizes = {'normal': 10, 'medium': 12, 'large': 13, 'xlarge': 28}
+            line_heights = {'normal': 16, 'medium': 19, 'large': 19, 'xlarge': 34}
             fs = font_sizes.get(size, 10)
             lh = line_heights.get(size, 16)
             font = resources.get_font(fs)
