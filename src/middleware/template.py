@@ -330,8 +330,30 @@ def __drawID(data, parent):
     display_line = None
 
     if data_val:
-        # FC,CN and XSF lines are already formatted — show directly
-        if data_val.startswith('FC,CN:') or data_val.startswith('XSF('):
+        # FC,CN: split into two lines FC: and CN: for readability
+        # XSF( rendered directly as before
+        if data_val.startswith('FC,CN:'):
+            # Format: 'FC,CN: 123,45678' -> FC: 123 / CN: 45678
+            rest = data_val[len('FC,CN:'):].strip()
+            parts = rest.split(',', 1)
+            fc_val = parts[0].strip() if len(parts) > 0 else ''
+            cn_val = parts[1].strip() if len(parts) > 1 else ''
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y,
+                text='FC: {}'.format(fc_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y + _DATA_LINE_H,
+                text='CN: {}'.format(cn_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            display_line = None  # already rendered, skip single-line path
+        elif data_val.startswith('XSF('):
             display_line = data_val
         elif typ == 28:
             # FDX-B: build Country: label from country key in cache
@@ -343,8 +365,25 @@ def __drawID(data, parent):
             # Indala: prefix with 'RAW: '
             display_line = 'RAW: {}'.format(data_val)
         elif typ == 33:
-            # Noralsy: data is 'CN-Year' — display with CN/YR: label
-            display_line = 'CN/YR: {}'.format(data_val)
+            # Noralsy: data is 'CN-Year' — split into CN: and Year: lines
+            parts = data_val.split('-', 1)
+            cn_val  = parts[0].strip() if len(parts) > 0 else ''
+            yr_val  = parts[1].strip() if len(parts) > 1 else ''
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y,
+                text='CN: {}'.format(cn_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y + _DATA_LINE_H,
+                text='Year: {}'.format(yr_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            display_line = None  # already rendered, skip single-line path
         else:
             # Standard ID: prefix with 'UID: '
             display_line = 'UID: {}'.format(data_val)
@@ -404,15 +443,8 @@ def __drawID(data, parent):
             anchor='nw',
             tags=_TAG_DATA,
         )
-    elif is_lf:
-        # Default chipset 'X' for LF tags
-        parent.create_text(
-            _LEFT_X, _DATA_START_Y + _DATA_LINE_H,
-            text='Chipset: X',
-            font=data_font,
-            anchor='nw',
-            tags=_TAG_DATA,
-        )
+    # Default 'Chipset: X' removed — provides no useful information
+    # EM4305 and T5577 chipsets are handled by their own draw functions
 
     # Additional data lines below chipset (if present)
     lines = data.get('lines')
