@@ -2,7 +2,7 @@
 An Open-Source version of the iCopy-X RFID Cloner device.
 
 ## Additional Note:
-This is repo fork will not work with the no-flash version, there are commands and items added that are not supported in the no-flash firmware.
+This repo fork will not work with the no-flash version, there are commands and items added that are not supported in the no-flash firmware.
 
 ## What this is:
 
