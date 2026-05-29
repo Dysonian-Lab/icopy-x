@@ -45,9 +45,9 @@ PAR_CLONE_MAP path — re-detect needed after clone:
 
 RAW_CLONE_MAP path — re-detect needed after clone:
     Securakey(14) -- lf securakey clone -r <raw>      [CONFIRMED]
-    Gallagher(29) -- lf gallagher clone -r <raw>
+    Gallagher(29) -- lf gallagher clone -r <raw>      [CONFIRMED]
     Paradox(35)   -- lf paradox clone -r <raw>        [CONFIRMED]
-    NexWatch(45)  -- lf nexwatch clone -r <raw>
+    NexWatch(45)  -- lf nexwatch clone -r <raw>       [CONFIRMED]
 
 Clone only — no password support:
     EM410x(8)     -- raw not available from lfsearch
@@ -88,7 +88,7 @@ B0_MAP = {
     33: '00088068',  # Noralsy (RDV4 confirmed config word)
     34: '00080080',  # PAC
     14: '000C8060',  # Securakey
-    29: '000880E0',  # Gallagher
+    29: '00088060',  # Gallagher
     35: '00107060',  # Paradox
     45: '00081060',  # NexWatch
 }
