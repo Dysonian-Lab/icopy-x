@@ -47,7 +47,7 @@ RAW_CLONE_MAP path — re-detect needed after clone:
     Securakey(14) -- lf securakey clone -r <raw>      [CONFIRMED]
     Gallagher(29) -- lf gallagher clone -r <raw>      [CONFIRMED]
     Paradox(35)   -- lf paradox clone -r <raw>        [CONFIRMED]
-    NexWatch(45)  -- lf nexwatch clone -r <raw>       [CONFIRMED]
+    NexWatch(45)  -- lf nexwatch clone -r <raw>       [CONFIRMED QUADRA KEY ONLY]
 
 Clone only — no password support:
     EM410x(8)     -- raw not available from lfsearch
