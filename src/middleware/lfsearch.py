@@ -141,7 +141,10 @@ REGEX_RAW = r'(?:Raw|raw)\s*:\s*([xX0-9a-fA-F ]+)'
 # cmdlfpyramid.c:161, cmdlfparadox.c:224, cmdlfkeri.c:181); Securakey emits
 # `FC: 0x%X` (cmdlfsecurakey.c:113). Colon is uniform post-iceman. Drop
 # `:*` tolerance. Matrix L981-982.
-_RE_FC = r'FC:\s+([xX0-9a-fA-F]+)'
+# Gallagher (cmdlfgallagher.c:88) emits `Facility: %u` not `FC: %u`;
+# the non-capturing alternate `(?:FC|Facility)` covers both without
+# affecting any other tag's match — all other tags still emit `FC:`.
+_RE_FC = r'(?:FC|Facility):\s+([xX0-9a-fA-F]+)'
 
 # Iceman per-tag demod uses: `Card: %u` (Jablotron/Noralsy/Paradox/AWID
 # cmdlfjablotron.c:98, cmdlfnoralsy.c:106, cmdlfparadox.c:224, cmdlfawid.c:248),
