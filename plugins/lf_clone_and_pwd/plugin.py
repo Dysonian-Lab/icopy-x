@@ -28,19 +28,19 @@ Workflow
 Password lock supported types
 ------------------------------
 write_raw() path — no re-detect needed after clone:
-    AWID(11)      -- lf t55xx write block by block via write_raw()
-    IOProx(12)    -- lf t55xx write block by block via write_raw()
-    GProxII(13)   -- lf t55xx write block by block via write_raw()
+    AWID(11)      -- lf t55xx write block by block via write_raw() [CONFIRMED]
+    IOProx(12)    -- lf t55xx write block by block via write_raw() [CONFIRMED]
+    GProxII(13)   -- lf t55xx write block by block via write_raw() [CONFIRMED]
     Viking(15)    -- lf t55xx write block by block via write_raw() [CONFIRMED]
-    Pyramid(16)   -- lf t55xx write block by block via write_raw()
-    Jablotron(30) -- lf t55xx write block by block via write_raw()
-    Noralsy(33)   -- lf t55xx write block by block via write_raw()
+    Pyramid(16)   -- lf t55xx write block by block via write_raw() [CONFIRMED]
+    Jablotron(30) -- lf t55xx write block by block via write_raw() [CONFIRMED]
+    Noralsy(33)   -- pwd write confirmed to brick tag, moved to clone only [CONFIRMED CANNOT USE]
     PAC(34)       -- lf t55xx write block by block via write_raw() [CONFIRMED]
 
 PAR_CLONE_MAP path — re-detect needed after clone:
     HID(9)        -- lf hid clone -r <raw>            [CONFIRMED]
     Indala(10)    -- lf indala clone -r <raw>
-    FDX-B(28)     -- lf fdxb clone --country <c> --national <nc>
+    FDX-B(28)     -- lf fdxb clone --country <c> --national <nc> [CONFIRMED ANIMAL ONLY]
     KERI(31)      -- lf keri clone -t i --cn <decimal_id> [CONFIRMED]
 
 RAW_CLONE_MAP path — re-detect needed after clone:
@@ -52,6 +52,7 @@ RAW_CLONE_MAP path — re-detect needed after clone:
 Clone only — no password support:
     EM410x(8)     -- raw not available from lfsearch
     NEDAP(32)     -- extended mode B0 (903F0082, bit 31 set)
+    Noralsy(33)   -- pwd write confirmed to brick tag regardless of correct pwd
     Presco(36)    -- raw not available from lfsearch
     Visa2000(37)  -- raw not available from lfsearch
 
@@ -62,7 +63,7 @@ Password lock sequence (all supported types):
     4. lf t55xx write -b 7 -d <pwd>         -- set password (tag still unlocked)
     5. lf t55xx read -b 7                   -- verify password written
     6. lf t55xx write -b 0 -d <locked_b0>  -- set PWD bit (tag now pwd protected)
-    7. lf t55xx detect -p <pwd>  x2        -- first may misread extended mode tags
+    7. lf t55xx detect -p <pwd>  x2        -- first may misread
     8. verify Password set == Yes            -- hard fail if not confirmed
     9. verify Block0 == <expected_b0>        -- hard fail if mismatch
 """
@@ -84,7 +85,7 @@ B0_MAP = {
     28: '00098080',  # FDX-B (T55X7_FDXB_2_CONFIG_BLOCK)
     30: '00158040',  # Jablotron
     31: '603E1040',  # KERI
-    33: '00088C6A',  # Noralsy
+    33: '00088068',  # Noralsy (RDV4 confirmed config word)
     34: '00080080',  # PAC
     14: '000C8060',  # Securakey
     29: '000880E0',  # Gallagher
@@ -93,7 +94,7 @@ B0_MAP = {
 }
 
 # Types using write_raw() — no re-detect needed after clone
-WRITE_RAW_TYPES = {11, 12, 13, 15, 16, 30, 33, 34}
+WRITE_RAW_TYPES = {11, 12, 13, 15, 16, 30, 34}
 
 # Types using dedicated clone command — re-detect needed after clone
 PAR_CLONE_TYPES = {9, 10, 28, 31}
@@ -105,7 +106,7 @@ RAW_CLONE_TYPES = {14, 29, 35, 45}
 LOCK_SUPPORTED = WRITE_RAW_TYPES | PAR_CLONE_TYPES | RAW_CLONE_TYPES
 
 # Types not supported — shown as clone only
-CLONE_ONLY = {8, 32, 36, 37}
+CLONE_ONLY = {8, 32, 33, 36, 37}
 
 
 # ---------------------------------------------------------------------------
