@@ -12,38 +12,34 @@
                     "lines": [
                         {
                             "text": "Pwd bit supported:",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "HID Indala AWID IOProx",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "GProx Viking Pyramid",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "Jablotron Noralsy PAC",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "FDX-B KERI Securakey",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "Gallagher Paradox",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "NexWatch",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
-                        },
-                        {
-                            "text": "All others clone only",
-                            "size": "normal"
                         }
                     ]
                 },
@@ -66,18 +62,18 @@
                     "lines": [
                         {
                             "text": "Place source LF tag",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "on reader",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Press OK to scan",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -101,14 +97,14 @@
                     "lines": [
                         {
                             "text": "Scanning LF tag...",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Please wait",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -143,7 +139,7 @@
                         },
                         {
                             "text": "Dump & continue?",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -177,11 +173,11 @@
                         },
                         {
                             "text": "Clone only (no lock)",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "Dump & continue?",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -205,14 +201,14 @@
                     "lines": [
                         {
                             "text": "Saving dump...",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Please wait",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -236,14 +232,14 @@
                     "lines": [
                         {
                             "text": "Saving dump...",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Please wait",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -266,22 +262,22 @@
                     "lines": [
                         {
                             "text": "Remove source tag",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "Place blank T55xx",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "on reader",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Write with password?",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -304,26 +300,26 @@
                     "lines": [
                         {
                             "text": "Remove source tag",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "Place blank T55xx",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "on reader",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Lock not supported",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": "for this tag type",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -372,14 +368,14 @@
                     "lines": [
                         {
                             "text": "Writing with password",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Please wait...",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -403,14 +399,14 @@
                     "lines": [
                         {
                             "text": "Writing to T55xx...",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Please wait",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -433,14 +429,14 @@
                     "lines": [
                         {
                             "text": "Clone complete!",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "{done_msg}",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
@@ -463,14 +459,14 @@
                     "lines": [
                         {
                             "text": "{error_msg}",
-                            "size": "normal"
+                            "size": "medium"
                         },
                         {
                             "text": ""
                         },
                         {
                             "text": "Press OK to retry",
-                            "size": "normal"
+                            "size": "medium"
                         }
                     ]
                 },
