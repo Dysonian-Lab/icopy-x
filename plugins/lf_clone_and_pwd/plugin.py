@@ -27,7 +27,7 @@ Workflow
 
 Password lock supported types
 ------------------------------
-write_raw() path — no re-detect needed after clone:
+write_raw() path — re-detect always performed after clone in do_write_actual:
     AWID(11)      -- lf t55xx write block by block via write_raw() [CONFIRMED]
     IOProx(12)    -- lf t55xx write block by block via write_raw() [CONFIRMED]
     GProxII(13)   -- lf t55xx write block by block via write_raw() [CONFIRMED]
@@ -64,7 +64,7 @@ Clone only — no password support:
 Password lock sequence (all supported types):
     1. lf t55xx detect                       -- sync PM3 config
     2. <type-specific clone command>         -- write clone data
-    3. lf t55xx detect                       -- re-sync [PAR/RAW_CLONE only]
+    3. lf t55xx detect                       -- re-sync after clone (all types)
     4. lf t55xx write -b 7 -d <pwd>         -- set password (tag still unlocked)
     5. lf t55xx read -b 7                   -- verify password written
     6. lf t55xx write -b 0 -d <locked_b0>  -- set PWD bit (tag now pwd protected)
@@ -143,33 +143,33 @@ def _locked_b0(typ):
 def _run_clone(typ, raw, infos, executor):
     """Run the correct clone command for the given type.
 
-    Returns (ret, needs_redetect) where ret is the PM3 return code
-    and needs_redetect is True for PAR_CLONE_MAP types.
+    Returns ret — the PM3 return code. Re-detect after clone is always
+    performed in do_write_actual regardless of clone method used.
     """
     if typ == 9:   # HID
         ret = executor.startPM3Task('lf hid clone -r %s' % raw, 15000)
-        return ret, True
+        return ret
 
     elif typ == 10:  # Indala
         ret = executor.startPM3Task('lf indala clone -r %s' % raw, 15000)
-        return ret, True
+        return ret
 
     elif typ == 28:  # FDX-B
         country = infos.get('country', '')
         nc      = infos.get('nc', '')
         if not country or not nc:
-            return -1, True
+            return -1
         ret = executor.startPM3Task(
             'lf fdxb clone --country %s --national %s' % (country, nc), 15000)
-        return ret, True
+        return ret
 
     elif typ == 31:  # KERI — needs decimal internal ID
         keri_id = infos.get('keri_id', '')
         if not keri_id:
-            return -1, True
+            return -1
         ret = executor.startPM3Task(
             'lf keri clone -t i --cn %s' % keri_id, 15000)
-        return ret, True
+        return ret
 
     elif typ in RAW_CLONE_TYPES:
         # RAW_CLONE_MAP types — lf <type> clone -r <raw>
@@ -181,18 +181,18 @@ def _run_clone(typ, raw, infos, executor):
         }
         cmd = raw_clone_cmds.get(typ, '')
         if not cmd:
-            return -1, True
+            return -1
         ret = executor.startPM3Task(cmd % raw, 15000)
-        return ret, True
+        return ret
 
     else:
         # write_raw() path
         try:
             import lfwrite
         except ImportError:
-            return -1, False
+            return -1
         ret = lfwrite.write_raw(typ, raw, key=None)
-        return ret, False
+        return ret
 
 
 # ---------------------------------------------------------------------------
@@ -418,15 +418,14 @@ class LFClonePwdPlugin(object):
             return {'status': 'error'}
 
         # Step 2: clone using type-specific command
-        ret, needs_redetect = _run_clone(typ, raw, infos, executor)
+        ret = _run_clone(typ, raw, infos, executor)
         if ret == -1:
             self.host.set_var('error_msg', 'Clone failed')
             return {'status': 'error'}
 
-        # Step 3: re-detect for PAR_CLONE_MAP types — they write their
-        # own B0 internally so PM3 needs to re-sync before block writes
-        if needs_redetect:
-            executor.startPM3Task('lf t55xx detect', 10000)
+        # Step 3: re-detect after clone — ensures PM3 re-syncs tag config
+        # before block writes regardless of clone method used
+        executor.startPM3Task('lf t55xx detect', 10000)
 
         # Step 4: write password to block 7 — tag still unlocked
         ret = executor.startPM3Task(
