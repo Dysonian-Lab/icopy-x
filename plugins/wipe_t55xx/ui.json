@@ -10,9 +10,9 @@
                 "content": {
                     "type": "text",
                     "lines": [
-                        {"text": "Place T55xx on reader", "size": "normal"},
+                        {"text": "Place T55xx on reader", "size": "medium"},
                         {"text": ""},
-                        {"text": "Wipe with password?", "size": "normal"}
+                        {"text": "Wipe with password?", "size": "medium"}
                     ]
                 },
                 "buttons": {"left": "No Pwd", "right": "With Pwd"},
@@ -52,9 +52,9 @@
                 "content": {
                     "type": "text",
                     "lines": [
-                        {"text": "Wiping T55xx...", "size": "normal"},
+                        {"text": "Wiping T55xx...", "size": "medium"},
                         {"text": ""},
-                        {"text": "Please wait", "size": "normal"}
+                        {"text": "Please wait", "size": "medium"}
                     ]
                 },
                 "buttons": {"left": null, "right": null}
@@ -71,9 +71,9 @@
                 "content": {
                     "type": "text",
                     "lines": [
-                        {"text": "Wipe complete!", "size": "normal"},
+                        {"text": "Wipe complete!", "size": "medium"},
                         {"text": ""},
-                        {"text": "{done_msg}", "size": "normal"}
+                        {"text": "{done_msg}", "size": "medium"}
                     ]
                 },
                 "buttons": {"left": "Back", "right": "Again"},
@@ -90,9 +90,9 @@
                 "content": {
                     "type": "text",
                     "lines": [
-                        {"text": "{error_msg}", "size": "normal"},
+                        {"text": "{error_msg}", "size": "medium"},
                         {"text": ""},
-                        {"text": "Press OK to retry", "size": "normal"}
+                        {"text": "Press OK to retry", "size": "medium"}
                     ]
                 },
                 "buttons": {"left": "Back", "right": "Again"},
