@@ -12,7 +12,7 @@
                     "type": "text",
                     "lines": [
                         {"text": "WARNING!",                      "size": "large",  "align": "center"},
-                        {"text": "Block writes can brick your tag permamently.", "size": "medium", "align": "center"},
+                        {"text": "Block writes can brick your tag permanently.", "size": "medium", "align": "center"},
                         {"text": ""},
                         {"text": "Do you understand the risks?",   "size": "medium", "align": "center"},
                         {"text": ""}
