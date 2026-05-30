@@ -49,6 +49,7 @@ _RE_BLOCK0     = r'Block0\.+\s+([A-Fa-f0-9]+)'
 _RE_PWD_SET    = r'Password set\.+\s+(\S+)'
 # {8,} excludes the shorter 6-dot "Password set......" line — see lft55xx.py
 _RE_PWD        = r'[Pp]assword\.{8,}\s+([A-Fa-f0-9]+)'
+_RE_DOWNLINK   = r'Downlink [Mm]ode\.+\s+(.+)'
 
 _KW_COULD_NOT_DETECT = 'Could not detect modulation automatically'
 
@@ -69,9 +70,18 @@ def _parse_detect_output(executor):
         block0      -- e.g. 'DEADBEEF'
         pwd_set     -- e.g. 'No' or 'Yes'
         pwd_line    -- e.g. 'Key:  DEADBEEF' if pwd_set==Yes, else ''
+        downlink    -- e.g. 'Fixed', 'Lead Zero', 'Long Lead', '1of4'
     """
     if executor.hasKeyword(_KW_COULD_NOT_DETECT):
         return None
+
+    # Shorten verbose downlink mode strings for display
+    _DOWNLINK_MAP = {
+        'default/fixed bit length': 'Fixed',
+        'leading zero':             'Lead Zero',
+        'long leading reference':   'Long Lead',
+        '1 of 4 coding reference':  '1of4',
+    }
 
     def _get(pattern):
         val = executor.getContentFromRegex(pattern)
@@ -83,6 +93,13 @@ def _parse_detect_output(executor):
     inverted   = _get(_RE_INVERTED)
     block0     = _get(_RE_BLOCK0)
     pwd_set    = _get(_RE_PWD_SET)
+    downlink_raw = _get(_RE_DOWNLINK)
+    # Shorten downlink value — match on substring since output may include '(detected def)'
+    downlink = '?'
+    for key, short in _DOWNLINK_MAP.items():
+        if key in downlink_raw.lower():
+            downlink = short
+            break
 
     # Only populate pwd_line when password is actually set
     pwd_line = ''
@@ -103,6 +120,7 @@ def _parse_detect_output(executor):
         'block0':     block0     or '?',
         'pwd_set':    pwd_set    or '?',
         'pwd_line':   pwd_line,
+        'downlink':   downlink,
     }
 
 
@@ -115,7 +133,7 @@ class T55xxDetectPlugin(object):
     def _clear_vars(self):
         """Reset all display variables to safe defaults."""
         for key in ('chip', 'modulation', 'bitrate', 'inverted',
-                    'block0', 'pwd_set', 'pwd_line'):
+                    'block0', 'pwd_set', 'pwd_line', 'downlink'):
             self.host.set_var(key, '')
 
     def _apply_result(self, fields):
