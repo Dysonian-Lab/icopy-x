@@ -12,13 +12,10 @@
                     "type": "text",
                     "lines": [
                         {"text": "WARNING!",                      "size": "large",  "align": "center"},
+                        {"text": "Block writes can brick your tag permamently.", "size": "medium", "align": "center"},
                         {"text": ""},
-                        {"text": "Writing blocks can make a tag", "size": "normal", "align": "center"},
-                        {"text": "unreadable or unrecoverable.",  "size": "normal", "align": "center"},
-                        {"text": ""},
-                        {"text": "If you understand the risks",   "size": "normal", "align": "center"},
-                        {"text": "press M2 to continue,",        "size": "normal", "align": "center"},
-                        {"text": "otherwise press Back.",         "size": "normal", "align": "center"}
+                        {"text": "Do you understand the risks?",   "size": "medium", "align": "center"},
+                        {"text": ""}
                     ]
                 },
                 "buttons": {"left": "Back", "right": "I Understand"},
@@ -34,12 +31,12 @@
                 "content": {
                     "type": "text",
                     "lines": [
-                        {"text": "Block to write",    "size": "normal", "align": "center"},
+                        {"text": "Block to write",    "size": "medium", "align": "center"},
                         {"text": ""},
                         {"text": "{block_num}",        "size": "xlarge", "align": "center"},
                         {"text": ""},
-                        {"text": "UP/RIGHT to cycle", "size": "normal", "align": "center"},
-                        {"text": "OK/M2 to confirm",  "size": "normal", "align": "center"}
+                        {"text": "UP/RIGHT to cycle", "size": "medium", "align": "center"},
+                        {"text": "OK/M2 to confirm",  "size": "medium", "align": "center"}
                     ]
                 },
                 "buttons": {"left": "Back", "right": "Confirm"},
@@ -85,10 +82,10 @@
                 "content": {
                     "type": "text",
                     "lines": [
-                        {"text": "Block: {selected_block}", "size": "normal", "align": "center"},
-                        {"text": "Data:  {data}",           "size": "normal", "align": "center"},
+                        {"text": "Block: {selected_block}", "size": "medium", "align": "center"},
+                        {"text": "Data:  {data}",           "size": "medium", "align": "center"},
                         {"text": ""},
-                        {"text": "Use password?",           "size": "normal", "align": "center"}
+                        {"text": "Use password?",           "size": "medium", "align": "center"}
                     ]
                 },
                 "buttons": {"left": "No Pwd", "right": "With Pwd"},
@@ -135,7 +132,7 @@
                         {"text": "Write OK!",              "size": "large",  "align": "center"},
                         {"text": ""},
                         {"text": "Block {selected_block}", "size": "large",  "align": "center"},
-                        {"text": "Data: {data}",           "size": "normal", "align": "center"}
+                        {"text": "Data: {data}",           "size": "medium", "align": "center"}
                     ]
                 },
                 "buttons": {"left": "Back", "right": "Again"},
@@ -154,8 +151,8 @@
                     "lines": [
                         {"text": "Write failed",         "size": "large",  "align": "center"},
                         {"text": ""},
-                        {"text": "Check tag present",    "size": "normal", "align": "center"},
-                        {"text": "and password correct", "size": "normal", "align": "center"}
+                        {"text": "Check tag present",    "size": "medium", "align": "center"},
+                        {"text": "and password correct", "size": "medium", "align": "center"}
                     ]
                 },
                 "buttons": {"left": "Back", "right": "Retry"},
