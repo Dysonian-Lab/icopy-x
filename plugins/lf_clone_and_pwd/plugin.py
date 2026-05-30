@@ -446,9 +446,14 @@ class LFClonePwdPlugin(object):
             return {'status': 'error'}
 
         # Steps 7+8: detect twice with password — first may misread on
-        # extended mode tags, second settles correctly
-        executor.startPM3Task('lf t55xx detect --r0 -p %s' % pwd, 10000)
-        executor.startPM3Task('lf t55xx detect --r0 -p %s' % pwd, 10000)
+        # extended mode tags, second settles correctly.
+        # Noralsy(33): --r0 forces fixed bit length downlink as some hardware
+        # detects post-lock Noralsy in leading zero mode without it.
+        detect_cmd = ('lf t55xx detect --r0 -p %s' % pwd
+                      if typ == 33 else
+                      'lf t55xx detect -p %s' % pwd)
+        executor.startPM3Task(detect_cmd, 10000)
+        executor.startPM3Task(detect_cmd, 10000)
 
         # Step 9: verify B0 matches expected locked value
         # Block0 == expected_b0 confirms PWD bit is set
