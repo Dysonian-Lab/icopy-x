@@ -34,8 +34,14 @@ write_raw() path — no re-detect needed after clone:
     Viking(15)    -- lf t55xx write block by block via write_raw() [CONFIRMED]
     Pyramid(16)   -- lf t55xx write block by block via write_raw() [CONFIRMED]
     Jablotron(30) -- lf t55xx write block by block via write_raw() [CONFIRMED]
-    Noralsy(33)   -- pwd write confirmed to brick tag, moved to clone only [CONFIRMED CANNOT USE]
+    Noralsy(33)   -- lf t55xx write block by block via write_raw() [CONFIRMED]
     PAC(34)       -- lf t55xx write block by block via write_raw() [CONFIRMED]
+    
+    NOTE:
+    Noralsy might be a litte strange, testing the plugin on 4 different branded T5577's only KSEC wrote fine
+    Ali, ID1 and Proxgrind t5577 failed the B0 check, this is because it gets detected with a leading zero reference
+    downlink mode instead of the default/fixed bit length (specified in detect with --r0) as a workaround i added detect to use r0 downlink mode.
+    the tag itself is set correctly and the underlying data is intact, unsure of the issue but noralsy is confirmed working on 2 other rdv4's.
 
 PAR_CLONE_MAP path — re-detect needed after clone:
     HID(9)        -- lf hid clone -r <raw>            [CONFIRMED]
@@ -52,7 +58,6 @@ RAW_CLONE_MAP path — re-detect needed after clone:
 Clone only — no password support:
     EM410x(8)     -- raw not available from lfsearch
     NEDAP(32)     -- extended mode B0 (903F0082, bit 31 set)
-    Noralsy(33)   -- pwd write confirmed to brick tag regardless of correct pwd
     Presco(36)    -- raw not available from lfsearch
     Visa2000(37)  -- raw not available from lfsearch
 
@@ -94,7 +99,7 @@ B0_MAP = {
 }
 
 # Types using write_raw() — no re-detect needed after clone
-WRITE_RAW_TYPES = {11, 12, 13, 15, 16, 30, 34}
+WRITE_RAW_TYPES = {11, 12, 13, 15, 16, 30, 33, 34}
 
 # Types using dedicated clone command — re-detect needed after clone
 PAR_CLONE_TYPES = {9, 10, 28, 31}
@@ -106,7 +111,7 @@ RAW_CLONE_TYPES = {14, 29, 35, 45}
 LOCK_SUPPORTED = WRITE_RAW_TYPES | PAR_CLONE_TYPES | RAW_CLONE_TYPES
 
 # Types not supported — shown as clone only
-CLONE_ONLY = {8, 32, 33, 36, 37}
+CLONE_ONLY = {8, 32, 36, 37}
 
 
 # ---------------------------------------------------------------------------
@@ -442,8 +447,8 @@ class LFClonePwdPlugin(object):
 
         # Steps 7+8: detect twice with password — first may misread on
         # extended mode tags, second settles correctly
-        executor.startPM3Task('lf t55xx detect -p %s' % pwd, 10000)
-        executor.startPM3Task('lf t55xx detect -p %s' % pwd, 10000)
+        executor.startPM3Task('lf t55xx detect --r0 -p %s' % pwd, 10000)
+        executor.startPM3Task('lf t55xx detect --r0 -p %s' % pwd, 10000)
 
         # Step 9: verify B0 matches expected locked value
         # Block0 == expected_b0 confirms PWD bit is set
