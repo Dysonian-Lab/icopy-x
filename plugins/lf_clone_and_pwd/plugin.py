@@ -44,6 +44,7 @@ write_raw() path — re-detect always performed after clone in do_write_actual:
     the tag itself is set correctly and the underlying data is intact, unsure of the issue but noralsy is confirmed working on 2 other rdv4's.
 
 PAR_CLONE_MAP path — re-detect needed after clone:
+    EM410x(8)     -- lf em 410x clone --id <raw>      [CONFIRMED]
     HID(9)        -- lf hid clone -r <raw>            [CONFIRMED]
     Indala(10)    -- lf indala clone -r <raw>
     FDX-B(28)     -- lf fdxb clone --country <c> --national <nc> [CONFIRMED ANIMAL ONLY]
@@ -56,8 +57,7 @@ RAW_CLONE_MAP path — re-detect needed after clone:
     NexWatch(45)  -- lf nexwatch clone -r <raw>       [CONFIRMED QUADRA KEY ONLY]
 
 Clone only — no password support:
-    EM410x(8)     -- raw not available from lfsearch
-    NEDAP(32)     -- extended mode B0 (903F0082, bit 31 set)
+    NEDAP(32)     -- extended mode B0 (907F0042, bit 31 set)
     Presco(36)    -- raw not available from lfsearch
     Visa2000(37)  -- raw not available from lfsearch
 
@@ -80,6 +80,7 @@ T55X7_PWD = 0x00000010
 
 # Per-type B0 config words from cmdlft55xx.h
 B0_MAP = {
+    8:  '00148040',  # EM410x (EM Unique / Paxton — T55X7_EM_UNIQUE_CONFIG_BLOCK)
     9:  '00107060',  # HID Prox
     10: '00081040',  # Indala 64
     11: '00107060',  # AWID
@@ -102,7 +103,7 @@ B0_MAP = {
 WRITE_RAW_TYPES = {11, 12, 13, 15, 16, 30, 33, 34}
 
 # Types using dedicated clone command — re-detect needed after clone
-PAR_CLONE_TYPES = {9, 10, 28, 31}
+PAR_CLONE_TYPES = {8, 9, 10, 28, 31}
 
 # RAW_CLONE_MAP types — lf <type> clone -r <raw>, re-detect needed after clone
 RAW_CLONE_TYPES = {14, 29, 35, 45}
@@ -111,7 +112,7 @@ RAW_CLONE_TYPES = {14, 29, 35, 45}
 LOCK_SUPPORTED = WRITE_RAW_TYPES | PAR_CLONE_TYPES | RAW_CLONE_TYPES
 
 # Types not supported — shown as clone only
-CLONE_ONLY = {8, 32, 36, 37}
+CLONE_ONLY = {32, 36, 37}
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +147,11 @@ def _run_clone(typ, raw, infos, executor):
     Returns ret — the PM3 return code. Re-detect after clone is always
     performed in do_write_actual regardless of clone method used.
     """
-    if typ == 9:   # HID
+    if typ == 8:   # EM410x
+        ret = executor.startPM3Task('lf em 410x clone --id %s' % raw, 15000)
+        return ret
+
+    elif typ == 9:   # HID
         ret = executor.startPM3Task('lf hid clone -r %s' % raw, 15000)
         return ret
 
