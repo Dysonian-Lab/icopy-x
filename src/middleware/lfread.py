@@ -69,6 +69,7 @@ Iceman-native command forms (P3.5 refactor, 2026-04-17):
 """
 
 import os
+import re
 
 try:
     import executor
@@ -135,19 +136,67 @@ def createRetObj(uid, raw, ret):
     return {'return': ret, 'data': uid, 'raw': raw}
 
 
-def _save_txt(typ, uid, raw):
-    """Save LF read result as .txt in the correct dump directory.
+def _stem_from_identity(ident):
+    """Build a clean, filesystem-safe filename stem from an identity string.
 
-    Naming convention:
-      Raw ID types:   <Type>-ID_<hexid>_N.txt
-                      e.g. HID-Prox-ID_200499aadc_1.txt
-      FC/CN types:    <Type>-ID_FC-CN_<fc>-<cn>_N.txt
-                      e.g. KERI-ID_FC-CN_002-171223_1.txt
+    Converts the display identity into a tidy stem with no protocol labels:
+      'FC,CN: 128,54641' -> '128-54641'   (FC/CN types — label stripped)
+      'XSF(01)6e:01337'  -> '01-6e-01337' (IOProx — vn-fc-cn)
+      plain hex/decimal  -> unchanged
+      'CN-Year' / 'C-NC' -> unchanged (already dash-joined)
 
-    Special characters from getFCCN() output (colons, commas) are
-    sanitized for filesystem safety: ':' -> '_', ',' -> '-'.
-    The file content always holds the original unmodified raw hex
-    payload — parsers must read the file content, not the filename.
+    The filename is purely an identifier under format v2 — display and sim
+    data come from the file content, not the filename. So a user may rename
+    the file freely and display/sim/write still work.
+    """
+    if not ident:
+        return ''
+    if ident.startswith('FC,CN:'):
+        # 'FC,CN: 128,54641' -> '128-54641'
+        vals = ident.replace(' ', '').split(':', 1)[1]
+        return vals.replace(',', '-')
+    if ident.startswith('XSF('):
+        # 'XSF(01)6e:01337' -> '01-6e-01337'
+        m = re.match(r'XSF\(\s*([0-9A-Fa-f]+)\s*\)\s*([0-9A-Fa-f]+)\s*:\s*([0-9]+)',
+                     ident)
+        if m:
+            return '%s-%s-%s' % (m.group(1), m.group(2), m.group(3))
+    # plain — strip spaces and neutralise any stray separators
+    return ident.replace(' ', '').replace(':', '_').replace(',', '-')
+
+
+def _save_txt(typ, uid, raw, display=None, extras=None):
+    """Save an LF read result as a multi-line .txt dump (format v2).
+
+        line 1  : raw hex  — WRITE payload (the only line the write path reads).
+
+        line 2  : DISPLAY and SIM — feeds cache['data'] for the tag-info /
+                  dump-list view, and is also the SIM source for single-field
+                  tags (EM410x, Viking, Indala, Jablotron, KERI, PAC, Presco,
+                  Visa2000, NexWatch — their one sim field maps to data).
+                  Multi-field tags use line 2 for display only and take their
+                  sim values from line 3+.
+
+        line 3+ : key=value SIM fields (multi-field tags only) —
+                  fc,cn,len (AWID/GProxII/Pyramid/Securakey/Gallagher/Paradox)
+                  vn,fc,cn (IOProx) · country,nc (FDX-B) ·
+                  subtype,code (NEDAP) · cn,year (Noralsy).
+
+    Note: IOProx line 2 keeps FC in hex (XSF display matches scan), but the
+    line-3 fc= is decimal because 'lf io sim --fc' expects decimal.
+
+    Filename <Type>-ID_<identity>_N.txt is only an identifier — all display,
+    sim and write data come from the content, so dumps can be renamed freely.
+    Old single-line dumps still work (display/sim fall back to the filename,
+    write uses the raw line).
+
+    Args:
+        typ:     numeric tag type (keys _DUMP_DIRS).
+        uid:     identity string (card id, 'FC,CN: x,y', XSF, ...).
+        raw:     raw hex write payload (line 1).
+        display: display string for line 2 (defaults to uid, then raw); also
+                 the sim source for single-field tags.
+        extras:  optional dict of per-field sim values for line 3+.
     """
     try:
         import appfiles
@@ -155,21 +204,26 @@ def _save_txt(typ, uid, raw):
         dump_dir = os.path.join(appfiles.PATH_DUMP, dir_name, '')
         os.makedirs(dump_dir, exist_ok=True)
 
-        data = uid or raw
-        if not data:
+        line1 = raw or uid or ''
+        line2 = display or uid or raw or ''
+        if not (line1 or line2):
             return
-        # Sanitize special characters before embedding in the filename.
-        # getFCCN() returns 'FC,CN: x,y' — after stripping spaces this
-        # becomes 'FC,CN:x,y' which contains ':' and ',' that are unsafe
-        # in filenames and break regex parsing. Sanitize to safe chars.
-        safe = data.replace(' ', '').replace(':', '_').replace(',', '-')
+
+        lines = [line1, line2]
+        if extras:
+            for k, v in extras.items():
+                if v is not None and v != '':
+                    lines.append('%s=%s' % (k, v))
+
+        ident = display or uid or raw or ''
+        safe = _stem_from_identity(ident)
         stem = '%s-ID_%s' % (prefix, safe)
 
         n = 1
         while os.path.exists(os.path.join(dump_dir, '%s_%d.txt' % (stem, n))):
             n += 1
         with open(os.path.join(dump_dir, '%s_%d.txt' % (stem, n)), 'w') as f:
-            f.write((raw or uid or '') + '\n')
+            f.write('\n'.join(lines))
     except Exception:
         pass
 
@@ -221,7 +275,7 @@ def read(cmd, uid_regex, raw_regex, uid_index=0, raw_index=0, typ=None, save=Tru
         raw = lfsearch.cleanHexStr(raw.strip())
     if uid or raw:
         if save and typ is not None:
-            _save_txt(typ, uid, raw)
+            _save_txt(typ, uid, raw, display=uid)
         return createRetObj(uid, raw, 1)
     return createRetObj(None, None, -1)
 
@@ -289,7 +343,24 @@ def readFCCNAndRaw(cmd, uid_index=0, raw_index=0, typ=None, save=True):
         # shape.
         uid = lfsearch.getFCCN()
         if save and typ is not None:
-            _save_txt(typ, uid, raw)
+            # Capture fc/cn/len as per-field sim values (format v2 line 3+)
+            # so simulate prepopulation works from a dump. Derive fc/cn from
+            # the SAME formatted string as the display (getFCCN -> %03d/%05d)
+            # so the dump's display line and its sim fields are always
+            # consistent. len drives the AWID/GProxII 'Format' sim field;
+            # absent for types with no format field (simply not written).
+            extras = {}
+            if uid and uid.startswith('FC,CN:'):
+                vals = uid.replace(' ', '').split(':', 1)[1]   # 'fc,cn'
+                pcs = vals.split(',', 1)
+                if len(pcs) == 2 and pcs[0] != 'X':
+                    extras['fc'] = pcs[0]
+                if len(pcs) == 2 and pcs[1] != 'X':
+                    extras['cn'] = pcs[1]
+            length = lfsearch.parseLen()
+            if length:
+                extras['len'] = length
+            _save_txt(typ, uid, raw, display=uid, extras=extras)
         return createRetObj(uid, raw, 1)
     return createRetObj(None, None, -1)
 
@@ -300,8 +371,54 @@ def readEM410X(listener=None, infos=None, save=True):
 
 
 def readHID(listener=None, infos=None, save=True):
-    return read('lf hid reader', lfsearch.REGEX_HID, lfsearch.REGEX_RAW,
-                uid_index=1, raw_index=0, typ=9, save=save)
+    """Read an HID Prox tag and save the dump (format v2).
+
+    cmdlfhid.c:235 emits "raw: <hex>"; when a Wiegand format is decoded it
+    also emits an "FC: %d CN: %d" line. The live scan path (lfsearch
+    Check 3) DISPLAYS 'FC,CN: x,y' when FC/CN decode, else the raw hex.
+    This reader mirrors that so the dump tag-info view matches scan view.
+
+    HID write path uses RAW (it is in write.py _RAW_CLONE_PAR_TYPES), so the
+    FC/CN display string is safe: line 1 is always the raw hex Wiegand
+    payload (the write payload), line 2 is the FC/CN display (or raw hex if
+    no Wiegand decode). fc/cn are stored as sim extras when present.
+    """
+    ret = executor.startPM3Task('lf hid reader', TIMEOUT)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+    raw = executor.getContentFromRegexG(lfsearch.REGEX_HID, 1)
+    if raw:
+        raw = lfsearch.cleanHexStr(raw.strip())
+    if not raw:
+        return createRetObj(None, None, -1)
+
+    fc = lfsearch.parseFC()
+    cn = lfsearch.parseCN()
+    if fc or cn:
+        display = lfsearch.getFCCN()
+    else:
+        display = raw
+
+    if save:
+        extras = {}
+        if display.startswith('FC,CN:'):
+            vals = display.replace(' ', '').split(':', 1)[1]
+            pcs = vals.split(',', 1)
+            if len(pcs) == 2 and pcs[0] != 'X':
+                extras['fc'] = pcs[0]
+            if len(pcs) == 2 and pcs[1] != 'X':
+                extras['cn'] = pcs[1]
+        # line 1 = raw (write payload); line 2 = display (FC/CN or raw hex).
+        _save_txt(9, raw, raw, display=display, extras=extras)
+    # Return the display string as the identity (data) so it matches what
+    # the dump stores on line 2. This keeps dump-write verification correct:
+    # lfverify re-reads HID and compares the re-read data against the dump's
+    # data — both must be the same FC/CN display string. raw stays the raw
+    # hex so the write path (RAW clone) and raw-compare verify are unaffected.
+    return createRetObj(display, raw, 1)
 
 
 def readIndala(listener=None, infos=None, save=True):
@@ -314,7 +431,57 @@ def readAWID(listener=None, infos=None, save=True):
 
 
 def readProxIO(listener=None, infos=None, save=True):
-    return readCardIdAndRaw('lf io reader', typ=12, save=save)
+    """Read an IO Prox tag and save the dump (format v2).
+
+    cmdlfio.c:156 emits:
+        "IO Prox - XSF(%02d)%02x:%05d, Raw: %08x%08x ..."
+                       vn     fc   cn
+    Note the facility code is printed in HEX (%02x) while version and card
+    number are decimal — this matches scan/read view exactly. The XSF
+    string is kept verbatim as the display identity (line 2) so dump
+    tag-info renders identically to the scan view.
+
+    vn/fc/cn are decomposed into per-field sim values (line 3+) mirroring
+    lfsearch Check 5 EXACTLY (fc stored as-captured, i.e. hex). The
+    pre-existing IOProx sim FC hex/decimal representation issue is shared
+    with the live-scan path and is tracked separately; this function does
+    not alter that behaviour.
+    """
+    ret = executor.startPM3Task('lf io reader', TIMEOUT)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+    xsf = executor.getContentFromRegexG(lfsearch.REGEX_PROX_ID_XSF, 1)
+    raw = executor.getContentFromRegexG(lfsearch.REGEX_RAW, 1)
+    if xsf:
+        xsf = xsf.strip()
+    if raw:
+        raw = lfsearch.cleanHexStr(raw.strip())
+    if xsf or raw:
+        extras = {}
+        if xsf:
+            m = re.match(
+                r'XSF\(\s*([0-9A-Fa-f]+)\s*\)\s*([0-9A-Fa-f]+)\s*:\s*([0-9]+)',
+                xsf)
+            if m:
+                extras['vn'] = m.group(1)
+                # IOProx displays FC in HEX in the XSF string (cmdlfio.c:156
+                # "%02x") but `lf io sim --fc` expects DECIMAL (cmdlfio.c:222
+                # "<dec>"). Store the decimal conversion as the sim field so
+                # simulate from a dump builds a correct command, while line 2
+                # (display) keeps the hex XSF string to match scan/read view.
+                try:
+                    extras['fc'] = str(int(m.group(2), 16))
+                except ValueError:
+                    extras['fc'] = m.group(2)
+                extras['cn'] = m.group(3)
+        if save:
+            # display = XSF string (matches scan view); raw on line 1.
+            _save_txt(12, xsf or raw, raw, display=xsf or raw, extras=extras)
+        return createRetObj(xsf or raw, raw, 1)
+    return createRetObj(None, None, -1)
 
 
 def readGProx2(listener=None, infos=None, save=True):
@@ -351,8 +518,37 @@ def readEM4X05(listener=None, infos=None, save=True):
 
 
 def readFDX(listener=None, infos=None, save=True):
-    return read('lf fdxb reader', lfsearch.REGEX_ANIMAL, lfsearch.REGEX_RAW,
-                uid_index=1, raw_index=0, typ=28, save=save)
+    """Read an FDX-B (animal) tag and save the dump (format v2).
+
+    cmdlffdxb.c:572/578 emits:
+        "Animal ID........... %03u-%012llu"   (country-national code)
+    The animal ID 'country-nc' is BOTH the display identity and the write
+    payload for FDX-B (the clone command takes --country/--national, not a
+    raw block payload), so line 1 and line 2 are the same value.
+
+    country/nc are also captured as per-field sim values (line 3+) so the
+    FDX-B sim/clone fields prepopulate from a dump.
+    """
+    ret = executor.startPM3Task('lf fdxb reader', TIMEOUT)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+    uid = executor.getContentFromRegexG(lfsearch.REGEX_ANIMAL, 1)
+    if uid:
+        uid = uid.strip()
+    if uid:
+        extras = {}
+        parts = uid.split('-', 1)
+        if len(parts) == 2:
+            extras['country'] = parts[0]
+            extras['nc'] = parts[1]
+        if save:
+            # FDX-B: animal id is both display and write payload.
+            _save_txt(28, uid, uid, display=uid, extras=extras)
+        return createRetObj(uid, uid, 1)
+    return createRetObj(None, None, -1)
 
 
 def readGALLAGHER(listener=None, infos=None, save=True):
@@ -390,13 +586,55 @@ def readKeri(listener=None, infos=None, save=True):
         raw = lfsearch.cleanHexStr(raw.strip())
     if uid or raw:
         if save:
-            _save_txt(31, uid, raw)
+            _save_txt(31, uid, raw, display=uid)
         return createRetObj(uid, raw, 1)
     return createRetObj(None, None, -1)
 
 
 def readNedap(listener=None, infos=None, save=True):
-    return readCardIdAndRaw('lf nedap reader', typ=32, save=save)
+    """Read a NEDAP tag and save the dump (format v2).
+
+    cmdlfnedap.c:146 emits the card ID plus
+    " subtype: %1u customer code: %u / 0x%03X".
+
+    Display identity stays the card ID (unchanged from prior behaviour) so
+    the NEDAP write path is unaffected: NEDAP is a PAR_CLONE_MAP type and
+    write.py feeds the writer the cache `data` field. We do NOT change what
+    `data` holds for NEDAP.
+
+    Additive only: subtype and customer code are captured as per-field sim
+    values (format v2 line 3+) so NEDAP simulate prepopulation works from a
+    dump — these were previously unrecoverable. Line 1 stays the raw block
+    hex (write payload); line 2 stays the card ID (display + PAR_CLONE key).
+    """
+    ret = executor.startPM3Task('lf nedap reader', TIMEOUT)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+    uid = executor.getContentFromRegexG(lfsearch.REGEX_CARD_ID, 1)
+    raw = executor.getContentFromRegexG(lfsearch.REGEX_RAW, 1)
+    if uid:
+        uid = lfsearch.cleanHexStr(uid.strip())
+    if raw:
+        raw = lfsearch.cleanHexStr(raw.strip())
+    if uid or raw:
+        extras = {}
+        subtype = executor.getContentFromRegexG(lfsearch._RE_SUBTYPE, 1)
+        code = executor.getContentFromRegexG(lfsearch._RE_CUSTOMER_CODE, 1)
+        if subtype:
+            extras['subtype'] = subtype.strip()
+        if code:
+            # Store as 'cn' so the sim field label 'CN:' -> ('cn',) mapping
+            # in _LABEL_TO_CACHE_KEY correctly prepopulates the customer code.
+            extras['cn'] = code.strip()
+        if save:
+            # display = card id (unchanged behaviour, keeps PAR_CLONE write
+            # working); raw block hex on line 1.
+            _save_txt(32, uid, raw, display=uid, extras=extras)
+        return createRetObj(uid, raw, 1)
+    return createRetObj(None, None, -1)
 
 
 def readNoralsy(listener=None, infos=None, save=True):
@@ -435,7 +673,12 @@ def readNoralsy(listener=None, infos=None, save=True):
         uid = None
     if uid or raw:
         if save:
-            _save_txt(33, uid, raw)
+            extras = {}
+            if cn:
+                extras['cn'] = cn.strip() if hasattr(cn, 'strip') else cn
+            if year:
+                extras['year'] = year.strip() if hasattr(year, 'strip') else year
+            _save_txt(33, uid, raw, display=uid, extras=extras)
         return createRetObj(uid, raw, 1)
     return createRetObj(None, None, -1)
 
