@@ -5982,7 +5982,7 @@ SIM_FIELDS = {
                   ('FC:',  '2001',    'dec', 9999),      # 4 digits max 9999
                   ('CN:',  '13371337','dec', 99999999)],  # 8 digits, .so passes raw (user confirmed)
     'lf_io':     [('Version:', '01', 'hex', 2),
-                  ('FC:',  'FF',    'hex', 2),
+                  ('FC:',  '255',   'dec', 255),           # 3 digits, decimal (cmdlfio.c:222 --fc <dec>)
                   ('CN:',  '65535', 'dec', 65536)],        # 5 digits, original toast: "CN greater than 65536"
     'lf_gporx':  [('Format:', '26', 'dec', 99),          # 2 digits max 99
                   ('FC:',  '255',  'dec', 999),           # 3 digits, original passes FC=346 (no validation catch)
@@ -6192,6 +6192,7 @@ class SimulationActivity(BaseActivity):
             'ID:':  ('data', 'raw'),
             'FC:':  ('fc',),
             'CN:':  ('cn',),
+            'Subtype:': ('subtype',),
             'Format:': ('len',),
             'Country:': ('country',),
             'NC:':  ('nc',),
@@ -8180,37 +8181,74 @@ class ReadFromHistoryActivity(BaseActivity):
                       'keri', 'pyramid', 'paradox', 'jablotron', 'noralsy',
                       'nexwatch', 'securakey', 'pac', 'gproxii', 'nedap',
                       'gallagher', 'visa2000', 'presco', 'ioprox'):
+            # info['data'] is the filename-derived identity. For OLD dumps
+            # (pre-v2) this is the only source of the display string, so it
+            # serves as the backwards-compatible fallback below.
             data = info.get('data', '')
-            cache['data'] = data
-            # Read file content for raw — the .txt stores the actual raw
-            # hex payload written by _save_txt (lfread.py), which the
-            # filename never fully encodes (it only contains the card ID
-            # or FC/CN). Fall back to data on any read failure so existing
-            # behaviour is preserved for all other consumers of this cache.
-            file_raw = ''
+
+            # Read the dump file. Format v2 (lfread.py _save_txt):
+            #   line 1  : raw hex   -> cache['raw']  (WRITE payload)
+            #   line 2  : display   -> cache['data'] (tag-info view)
+            #   line 3+ : key=value -> individual sim-field cache keys
+            # Old single-line dumps have only line 1 (raw); line 2/3+ absent.
+            lines = []
             if self._file_path:
                 try:
                     with open(self._file_path, 'r') as _f:
-                        file_raw = _f.read().strip()
+                        lines = _f.read().split('\n')
                 except Exception:
                     pass
-            cache['raw'] = file_raw if file_raw else data
-            # FDX-B animal dump txt contains CCC-NNNNNNNNNNNN directly.
-            # Split into country + nc so sim field prepopulation works,
-            # mirroring what lfsearch.py does for a live scan (Check 12).
-            if dtk == 'fdx' and file_raw and '-' in file_raw:
-                parts = file_raw.split('-', 1)
-                if len(parts) == 2:
-                    cache['country'] = parts[0]
-                    cache['nc'] = parts[1]
-            # Noralsy filename encodes CN-Year (e.g. Noralsy-ID_133778-2026_1.txt).
-            # Split data into cn + year so sim field prepopulation works,
-            # mirroring what lfsearch.py does for a live scan (Check 20).
-            if dtk == 'noralsy' and data and '-' in data:
-                parts = data.split('-', 1)
-                if len(parts) == 2:
-                    cache['cn']   = parts[0]
-                    cache['year'] = parts[1]
+
+            line1 = lines[0].strip() if len(lines) > 0 else ''
+            line2 = lines[1].strip() if len(lines) > 1 else ''
+
+            # raw (write path): line 1, else fall back to filename identity.
+            cache['raw'] = line1 if line1 else data
+
+            # data (display): line 2 (new dumps) -> filename identity
+            # (old dumps, keeps FC/CN + Noralsy CN/Year display working via
+            # _parseFilename restore) -> raw as last resort.
+            if line2:
+                cache['data'] = line2
+            elif data:
+                cache['data'] = data
+            else:
+                cache['data'] = cache['raw']
+
+            # line 3+ : key=value sim fields (new dumps only). Generic — sets
+            # whatever keys the reader stored (fc, cn, vn, len, country, nc,
+            # subtype, code, year) so simulate prepopulation just works.
+            for _ln in lines[2:]:
+                _ln = _ln.strip()
+                if '=' in _ln:
+                    _k, _v = _ln.split('=', 1)
+                    cache[_k.strip()] = _v.strip()
+
+            # ---- Backwards compatibility for OLD dumps (no line 3+) ----
+            # Old dumps store no per-field keys, so recover sim fields from
+            # the display string / filename identity, mirroring the live
+            # scan decompose. New dumps already have these keys from line 3+
+            # (the 'not in cache' guards avoid overwriting them).
+            ddisp = cache['data']
+            if dtk == 'fdx' and 'country' not in cache and ddisp and '-' in ddisp:
+                _p = ddisp.split('-', 1)
+                if len(_p) == 2:
+                    cache['country'] = _p[0]
+                    cache['nc'] = _p[1]
+            if dtk == 'noralsy' and 'cn' not in cache and ddisp and '-' in ddisp:
+                _p = ddisp.split('-', 1)
+                if len(_p) == 2:
+                    cache['cn'] = _p[0]
+                    cache['year'] = _p[1]
+            if dtk in ('awid', 'gproxii', 'pyramid', 'gallagher', 'securakey',
+                       'paradox', 'hid') and 'fc' not in cache and \
+                    ddisp and ddisp.startswith('FC,CN:'):
+                _vals = ddisp.replace(' ', '').split(':', 1)[1]  # 'fc,cn'
+                _p = _vals.split(',', 1)
+                if len(_p) == 2 and _p[0] != 'X':
+                    cache['fc'] = _p[0]
+                if len(_p) == 2 and _p[1] != 'X':
+                    cache['cn'] = _p[1]
         elif dtk == 'felica':
             cache['uid'] = info.get('uid', '')
         elif dtk in ('icode', 'hf14a'):
