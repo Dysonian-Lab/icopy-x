@@ -276,11 +276,38 @@ def write_keri(internal_id):
 
 
 def write_nedap(raw):
-    """Clone NEDAP tag.
+    """Clone NEDAP tag to T5577.
 
-    QEMU-verified: writes raw data to T5577 blocks.
+    NEDAP uses extended-mode T5577 config (bit 31 set). Two variants:
+        64-bit:  raw = 16 hex chars (2 data blocks), B0 = 907F0042
+        128-bit: raw = 32 hex chars (4 data blocks), B0 = 907F0082
+
+    Write order: data blocks 1..N first, then Block 0 (config) last.
+    This mirrors the B0_WRITE_MAP path used by other raw-write types —
+    writing B0 last prevents the tag re-modulating mid-sequence.
+
+    cmdlft55xx.h:
+        T55X7_NEDAP_64_CONFIG_BLOCK  0x907f0042  (2 data blocks, BiPhase rf64)
+        T55X7_NEDAP_128_CONFIG_BLOCK 0x907f0082  (4 data blocks, BiPhase rf64)
     """
-    return write_raw_t55xx(raw)
+    if not raw or len(raw) not in (16, 32):
+        return -1
+
+    # Select correct B0 config based on raw length
+    b0 = '907F0042' if len(raw) == 16 else '907F0082'
+
+    # Write data blocks 1..N first
+    blocks = [raw[i:i + 8] for i in range(0, len(raw), 8)]
+    for i, block_data in enumerate(blocks):
+        cmd = 'lf t55xx write -b {} -d {}'.format(i + 1, block_data)
+        ret = executor.startPM3Task(cmd, TIMEOUT)
+        if ret == -1:
+            return -1
+
+    # Write Block 0 (config) last
+    cmd = 'lf t55xx write -b 0 -d {}'.format(b0)
+    executor.startPM3Task(cmd, TIMEOUT)
+    return True
 
 
 # PAR_CLONE_MAP: tag type ID -> function for parameter-based cloning
