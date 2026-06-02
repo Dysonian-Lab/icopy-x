@@ -499,7 +499,17 @@ def parser():
             m = re.match(r'XSF\(\s*([0-9A-Fa-f]+)\s*\)\s*([0-9A-Fa-f]+)\s*:\s*([0-9]+)', xsf)
             if m:
                 seaObj['vn'] = m.group(1)
-                seaObj['fc'] = m.group(2)
+                # IOProx shows FC in HEX in the XSF string (cmdlfio.c:156
+                # "%02x") but `lf io sim --fc` expects DECIMAL
+                # (cmdlfio.c:222 "<dec>"). Store the decimal conversion as
+                # the sim field so scan→simulate builds a correct command,
+                # while data (display) keeps the hex XSF string. This matches
+                # the IOProx dump path (readProxIO in lfread.py) exactly, so
+                # sim-from-scan and sim-from-dump are consistent.
+                try:
+                    seaObj['fc'] = str(int(m.group(2), 16))
+                except ValueError:
+                    seaObj['fc'] = m.group(2)
                 seaObj['cn'] = m.group(3)
         else:
             seaObj['data'] = None
@@ -601,7 +611,13 @@ def parser():
     # Check 14: KERI
     if executor.hasKeyword('Valid KERI ID'):
         seaObj = {}
-        setUID2FCCN(seaObj)
+        # KERI is Internal-ID-native: scan/read/dump views should all show
+        # the decimal Internal ID consistently. Capture it into data
+        # (instead of setUID2FCCN's 'FC,CN: x,y' string) so the displayed
+        # identity matches across every view, and so data aligns with what
+        # write_keri / 'lf keri sim --id' consume (the Internal ID).
+        internal_id = executor.getContentFromRegexG(REGEX_KERI_ID, 1)
+        seaObj['data'] = internal_id.strip() if internal_id else ''
         setRAW(seaObj)
         seaObj['type'] = tagtypes.KERI_ID
         seaObj['found'] = True
@@ -628,8 +644,14 @@ def parser():
     # Check 17: NexWatch
     if executor.hasKeyword('Valid NexWatch ID'):
         seaObj = {}
-        setUID(seaObj)
         setRAW(seaObj)
+        # NexWatch's iceman output has no Card/ID/UID label that
+        # REGEX_CARD_ID can match (it emits lowercase "raw id" / "88bit id"),
+        # so setUID() produces a stray partial match. Use the full raw hex
+        # as the display identity instead, so scan/read view matches the
+        # dump view (which shows the Raw: line). NexWatch clones from raw
+        # (RAW_CLONE_MAP), so data=raw is also write-consistent.
+        seaObj['data'] = seaObj.get('raw', '')
         seaObj['type'] = tagtypes.NEXWATCH_ID
         seaObj['found'] = True
         return seaObj
