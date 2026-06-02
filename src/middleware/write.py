@@ -195,17 +195,18 @@ def write(listener, infos, bundle, run_on_subthread=True):
                 #   28 FDX-B:   data='Country: 112' (descriptive line),
                 #               raw='112-025880314020' (parseable)
                 #               → writer splits on '-', only raw works
-                #   32 NEDAP:   data=hex (setUID), raw=hex (setRAW)
-                #               → either OK
+                #   32 NEDAP:   data=card id hex (setUID), raw=block hex (setRAW)
+                #               → writer needs raw (write_nedap writes blocks
+                #                 starting at 1, then B0; card id would corrupt)
                 #
                 # Special-case the writers that strictly need `raw`:
-                # HID, Indala, FDX-B.  Iceman cmdlfindala.c:790
+                # HID, Indala, FDX-B, NEDAP.  Iceman cmdlfindala.c:790
                 # _RED_("Warning, encoding with FC/CN doesn't always
                 # work") confirms raw is universally correct for HID +
                 # Indala; cmdlffdxb.c:712 CLIParser argtable uses
                 # `--country <dec> --national <dec>` which write_fdx_par
                 # parses from the `<C>-<N>` form held in `raw`.
-                _RAW_CLONE_PAR_TYPES = {9, 10, 28}  # HID Prox, Indala, FDX-B
+                _RAW_CLONE_PAR_TYPES = {9, 10, 28, 32}  # HID Prox, Indala, FDX-B, NEDAP
                 if typ in _RAW_CLONE_PAR_TYPES:
                     raw_par = raw if raw else data
                 elif typ in getattr(lfwrite, 'PAR_CLONE_MAP', {}):
