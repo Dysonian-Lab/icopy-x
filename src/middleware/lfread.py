@@ -295,7 +295,7 @@ def readCardIdAndRaw(cmd, uid_index=0, raw_index=0, typ=None, save=True):
                 uid_index=uid_index, raw_index=raw_index, typ=typ, save=save)
 
 
-def readFCCNAndRaw(cmd, uid_index=0, raw_index=0, typ=None, save=True):
+def readFCCNAndRaw(cmd, uid_index=0, raw_index=0, typ=None, save=True, write_extras=True):
     """Iceman-native per-tag: parse `FC: %d Card: %u` + `Raw:` from cache.
 
     Used by: AWID (cmdlfawid.c:248), GProx-II (cmdlfguard.c:186),
@@ -349,17 +349,23 @@ def readFCCNAndRaw(cmd, uid_index=0, raw_index=0, typ=None, save=True):
             # so the dump's display line and its sim fields are always
             # consistent. len drives the AWID/GProxII 'Format' sim field;
             # absent for types with no format field (simply not written).
+            #
+            # write_extras=False (Gallagher only): no SIM_MAP entry consumes
+            # fc/cn/len for Gallagher (its raw payload on line 1 is
+            # self-sufficient), so line 3+ is omitted entirely. Display
+            # (line 2, 'FC,CN: x,y' from `uid`) is unaffected either way.
             extras = {}
-            if uid and uid.startswith('FC,CN:'):
-                vals = uid.replace(' ', '').split(':', 1)[1]   # 'fc,cn'
-                pcs = vals.split(',', 1)
-                if len(pcs) == 2 and pcs[0] != 'X':
-                    extras['fc'] = pcs[0]
-                if len(pcs) == 2 and pcs[1] != 'X':
-                    extras['cn'] = pcs[1]
-            length = lfsearch.parseLen()
-            if length:
-                extras['len'] = length
+            if write_extras:
+                if uid and uid.startswith('FC,CN:'):
+                    vals = uid.replace(' ', '').split(':', 1)[1]   # 'fc,cn'
+                    pcs = vals.split(',', 1)
+                    if len(pcs) == 2 and pcs[0] != 'X':
+                        extras['fc'] = pcs[0]
+                    if len(pcs) == 2 and pcs[1] != 'X':
+                        extras['cn'] = pcs[1]
+                length = lfsearch.parseLen()
+                if length:
+                    extras['len'] = length
             _save_txt(typ, uid, raw, display=uid, extras=extras)
         return createRetObj(uid, raw, 1)
     return createRetObj(None, None, -1)
@@ -552,11 +558,61 @@ def readFDX(listener=None, infos=None, save=True):
 
 
 def readGALLAGHER(listener=None, infos=None, save=True):
-    return readFCCNAndRaw('lf gallagher reader', typ=29, save=save)
+    """Read a Gallagher tag and save the dump.
+
+    Gallagher's raw payload (line 1, the 12-byte/24-hex demod block) is
+    self-sufficient -- fc=/cn= (line 3+) are not consumed by anything for
+    Gallagher, so they're omitted here (write_extras=False). Display (line
+    2, 'FC,CN: x,y' from getFCCN()) is unaffected.
+    """
+    return readFCCNAndRaw('lf gallagher reader', typ=29, save=save, write_extras=False)
 
 
 def readJablotron(listener=None, infos=None, save=True):
-    return readCardIdAndRaw('lf jablotron reader', typ=30, save=save)
+    """Read a Jablotron tag and save the dump (format v2).
+
+    cmdlfjablotron.c demodJablotron() emits:
+        "Jablotron - Card: %"PRIx64", Raw: %08X%08X"
+
+    Card: is the display id (id = getJablontronCardId(rawid), printed via
+    %PRIx64 with no zero-padding, so its hex length varies 1-9 chars).
+    Raw: is the full 64-bit demod buffer, always 16 hex chars:
+        [0:4]  = 16-bit preamble (FFFF)
+        [4:14] = 40-bit fullcode/rawid (10 hex chars)
+        [14:16]= 8-bit checksum
+
+    `lf jablotron sim --cn <hex>` (CmdJablotronSim) expects that 40-bit
+    fullcode/rawid directly -- it is placed verbatim into the tag bitstream
+    by getJablotronBits(). The Card: display id is a different, BCD-style
+    transform of that value (getJablontronCardId()) and is NOT the value
+    --cn needs; it can also have an odd hex-digit count, which
+    CLIGetHexWithReturn rejects ("uneven amount of digits").
+
+    fullcode is extracted here as raw[4:14] -- always exactly 10 hex chars
+    (even-length) -- and saved as 'fullcode=' on line 3 for sim
+    prepopulation, while line 2 (display=uid) keeps showing the familiar
+    Card: id, unchanged.
+    """
+    ret = executor.startPM3Task('lf jablotron reader', TIMEOUT)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+    uid = executor.getContentFromRegexG(lfsearch.REGEX_CARD_ID, 1)
+    raw = executor.getContentFromRegexG(lfsearch.REGEX_RAW, 1)
+    if uid:
+        uid = lfsearch.cleanHexStr(uid.strip())
+    if raw:
+        raw = lfsearch.cleanHexStr(raw.strip())
+    if uid or raw:
+        extras = None
+        if raw and len(raw) == 16:
+            extras = {'fullcode': raw[4:14]}
+        if save:
+            _save_txt(30, uid, raw, display=uid, extras=extras)
+        return createRetObj(uid, raw, 1)
+    return createRetObj(None, None, -1)
 
 
 def readKeri(listener=None, infos=None, save=True):
@@ -626,9 +682,11 @@ def readNedap(listener=None, infos=None, save=True):
         if subtype:
             extras['subtype'] = subtype.strip()
         if code:
-            # Store as 'cn' so the sim field label 'CN:' -> ('cn',) mapping
-            # in _LABEL_TO_CACHE_KEY correctly prepopulates the customer code.
-            extras['cn'] = code.strip()
+            # Store as 'cc' so the sim field label 'CC:' -> ('cc', 'code',
+            # 'cn') mapping in _LABEL_TO_CACHE_KEY correctly prepopulates
+            # the customer code (--cc). This is Nedap-specific; other tag
+            # types' 'CN:' -> ('cn',) mapping (e.g. Noralsy) is untouched.
+            extras['cc'] = code.strip()
         if save:
             # display = card id (unchanged behaviour, keeps PAR_CLONE write
             # working); raw block hex on line 1.
