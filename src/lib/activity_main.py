@@ -5949,7 +5949,12 @@ SIM_MAP = [
     ('G-Prox II ID',  13, 'LF', 'lf_gporx',  'fccn',    'lf gproxii sim --xor 0 --fmt {} --fc {} --cn {}'),
     ('Viking ID',     15, 'LF', 'single_4b', 'uid',     'lf viking sim --cn {}'),
     ('Pyramid ID',    16, 'LF', 'lf_pyramid','pyramid', 'lf pyramid sim --fc {} --cn {}'),
-    ('Jablotron ID',  30, 'LF', 'lf_jab',    'jabdat',  'lf jablotron sim --cn {}'),
+    # Jablotron: 'fullcode' (the 40-bit rawid, line 3 of new dumps / derived
+    # from raw[4:14] for old dumps & live scans -- see _showSimUi and
+    # lfread.readJablotron) is what 'lf jablotron sim --cn' expects. This is
+    # distinct from the 'Card:' display id (cache['data']), which is a
+    # different BCD-style transform unsuitable for --cn.
+    ('Jablotron ID',  30, 'LF', 'lf_jab',    'fullcode', 'lf jablotron sim --cn {}'),
     ('KERI ID',       31, 'LF', 'lf_keri',   'data',    'lf keri sim --id {}'),
     # NOTE: PAC sim on PAC Door reader works and to flipper zero works but cannot get RDV4 to detect,
     # iCopy > Flipper Zero Works and iCopy > PAC Door Reader but iCopy > RDV4 could not get to work.
@@ -5960,6 +5965,14 @@ SIM_MAP = [
     ('FDX-B Data',    28, 'LF', 'lf_fdx_d',  'fdx',     'lf fdxb sim --country {} --national {} --extended {}'),
     # NOTE: Noralsy sim works iCopy > Flipper Zero but RDV4 cannot detect.
     ('Noralsy ID',    33, 'LF', 'lf_noralsy', 'cn',     'lf noralsy sim --cn {} --year {}'),
+    # NOTE: Gallagher sim is UNCONFIRMED. cmdlfgallagher.c CmdGallagherSim
+    # accepts --raw <hex> (12 bytes/24 hex chars), and readGALLAGHER()
+    # (lfread.py) saves that exact payload as dump line 1 -> cache['raw'],
+    # so prepop is correct -- but a simulating RDV4 wasn't detected by
+    # iCopy or Flipper, and iCopy sim wasn't detected by Flipper or RDV4
+    # either. Likely a firmware-level Gallagher sim issue, not iCopy-side,
+    # but treat as unverified until a real-world detection succeeds.
+    ('Gallagher ID',  29, 'LF', 'lf_gallagher', 'raw',  'lf gallagher sim --raw {}'),
 ]
 
 # QEMU-verified defaults from real .so binary (sim_common.sh lines 203-210).
@@ -5989,7 +6002,10 @@ SIM_FIELDS = {
                   ('CN:',  '65535','dec', 65535)],         # 5 digits, 0xFFFF chipset max
     'lf_pyramid':[('FC:',  '255',  'dec', 255),           # 3 digits, original toast: "FC greater than 255"
                   ('CN:',  '65536','dec', 99999)],         # 5 digits max 99999
-    'lf_jab':    [('ID:',  '1C6AEB0D2F', 'hex', 10)],
+    # FullCode: the 40-bit rawid (always exactly 10 hex chars / even-length,
+    # sliced from raw[4:14]) -- the value 'lf jablotron sim --cn' needs.
+    # Default is a real example fullcode (from a clone test).
+    'lf_jab':    [('FullCode:', '01B66901B6', 'hex', 10)],
     # KERI Internal ID: cmdlfkeri.c:176 emits `Internal ID: %u` (decimal).
     # lf keri sim --id accepts decimal internal ID directly.
     # Max usable value: 0x7FFFFFFF = 2147483647 (MSB reserved by firmware).
@@ -5998,7 +6014,7 @@ SIM_FIELDS = {
     # lf pac sim --id accepts the card ID hex directly (same shape as card ID from reader).
     'lf_pac':    [('ID:',  'AABA517B', 'hex', 8)],
     'lf_nedap':  [('Subtype:', '15', 'dec', 15),          # FB proof: max 15, decimal display
-                  ('CN:',  '999',   'dec', 999),          # 3 digits max 999 (doc: 65535)
+                  ('CC:',  '999',   'dec', 999),          # 3 digits max 999 (doc: 65535)
                   ('ID:',  '99999', 'dec', 65535)],        # 5 digits, doc max 65535
     'lf_fdx_a':  [('Country:', '999', 'dec', 999),        # 10-bit ISO 11784, max 999 usable
                   ('NC:',  '112233445566', 'dec', 274877906943)],  # 38-bit ISO 11784 national ID
@@ -6011,6 +6027,11 @@ SIM_FIELDS = {
     # 2099 for simplicity — values beyond 2059 will fold back via iceman offset.
     'lf_noralsy': [('CN:',   '1234567', 'dec', 9999999),
                    ('Year:', '2000',    'dec', 2099)],
+    # Gallagher raw payload: cmdlfgallagher.c CmdGallagherSim '--raw' takes the
+    # 12-byte (96-bit) block payload as 24 hex chars. Default is the example
+    # value from the command's own help text (CmdGallagherSim usage string).
+    # See SIM_MAP note above -- sim itself is unconfirmed/unverified.
+    'lf_gallagher': [('Raw:', '0FFD5461A9DA1346B2D1AC32', 'hex', 24)],
 }
 
 # Initialize _SIMULATE_TYPES from SIM_MAP (audit finding 3)
@@ -6192,6 +6213,11 @@ class SimulationActivity(BaseActivity):
             'ID:':  ('data', 'raw'),
             'FC:':  ('fc',),
             'CN:':  ('cn',),
+            # Nedap customer code (--cc). 'cc' = new dumps (line 3 cc=),
+            # 'code' = live scans (lfsearch NEDAP check sets seaObj['code']),
+            # 'cn' = old dumps (pre-change, line 3 cn=). CN: above is
+            # unchanged and still used as-is by Noralsy etc.
+            'CC:':  ('cc', 'code', 'cn'),
             'Subtype:': ('subtype',),
             'Format:': ('len',),
             'Country:': ('country',),
@@ -6218,6 +6244,16 @@ class SimulationActivity(BaseActivity):
             if (i == 0 and sim_override_key
                     and isinstance(self._defbundle, dict)):
                 v = self._defbundle.get(sim_override_key)
+                if v in (None, '', 'X') and sim_override_key == 'fullcode':
+                    # Jablotron: 'fullcode' (dump line 3) is absent for old
+                    # dumps and live scans. Derive it from the 16-hex-char
+                    # raw demod buffer: [4:14] is the 40-bit fullcode/rawid
+                    # (4-char FFFF preamble + 10-char fullcode + 2-char
+                    # checksum) -- exactly what 'lf jablotron sim --cn'
+                    # expects. See lfread.readJablotron.
+                    _raw = self._defbundle.get('raw', '')
+                    if _raw and len(_raw) == 16:
+                        v = _raw[4:14]
                 if v not in (None, '', 'X'):
                     val = v
                     populated = True
@@ -6909,8 +6945,16 @@ class CardWalletActivity(BaseActivity):
         self._clearContent()
         if self._toast:
             self._toast.cancel()
-        self.setLeftButton('')
-        self.setRightButton('')
+        # dismissButton() (not setLeftButton('')/setRightButton('')) --
+        # the latter only delete the button TEXT tags, leaving the dark
+        # #222222 button-bar background rect (TAG_BTN_BG) drawn by
+        # _setupButtonBg() behind. Once the File List screen has shown
+        # Details/Delete (which draws that bg), returning here left a
+        # permanent black bar at the bottom that survived list scrolling.
+        # dismissButton() with no args removes the bg too and resets
+        # _is_button_inited so _setupButtonBg() draws it again cleanly
+        # (and in the correct z-order) if a button screen is shown later.
+        self.dismissButton()
         canvas = self.getCanvas()
         if canvas is None:
             return
@@ -6986,8 +7030,11 @@ class CardWalletActivity(BaseActivity):
         if canvas is None:
             return
         if self._is_dump_list_empty:
-            self.setLeftButton('')
-            self.setRightButton('')
+            # Same TAG_BTN_BG fix as _showTypeList: dismissButton() clears
+            # the dark button-bar background too (not just the text), in
+            # case this list went from non-empty (Details/Delete shown,
+            # bg drawn) to empty (e.g. last dump deleted).
+            self.dismissButton()
             from lib.widget import BigTextListView
             self._btlv = BigTextListView(canvas)
             self._btlv.drawStr('No dump info. \nOnly support:\n.bin .eml .txt')
