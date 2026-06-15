@@ -34,7 +34,8 @@
                     "lines": [
                         {"text": "Recovering tag...", "size": "medium"},
                         {"text": ""},
-                        {"text": "Please wait", "size": "medium"}
+                        {"text": "Please wait", "size": "medium"},
+                        {"text": "This may take 60s+", "size": "medium"}
                     ]
                 },
                 "buttons": {"left": null, "right": null}
