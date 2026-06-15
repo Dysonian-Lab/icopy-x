@@ -552,7 +552,7 @@ def scanForType(listener, typ):
             tagtypes.FDXB_ID, tagtypes.GALLAGHER_ID, tagtypes.JABLOTRON_ID,
             tagtypes.KERI_ID, tagtypes.NEDAP_ID, tagtypes.NORALSY_ID,
             tagtypes.PAC_ID, tagtypes.PARADOX_ID, tagtypes.PRESCO_ID,
-            tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID,
+            tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID, tagtypes.HITAG2_ID,
         }
 
         result = None
@@ -576,8 +576,6 @@ def scanForType(listener, typ):
         elif typ == tagtypes.FELICA:
             result = scan_felica()
         elif typ == tagtypes.ISO14443B:
-            result = scan_hfsea()
-        elif typ == tagtypes.HITAG2_ID:
             result = scan_hfsea()
         else:
             result = scan_hfsea()
@@ -839,7 +837,7 @@ class Scanner:
                 tagtypes.FDXB_ID, tagtypes.GALLAGHER_ID, tagtypes.JABLOTRON_ID,
                 tagtypes.KERI_ID, tagtypes.NEDAP_ID, tagtypes.NORALSY_ID,
                 tagtypes.PAC_ID, tagtypes.PARADOX_ID, tagtypes.PRESCO_ID,
-                tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID,
+                tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID, tagtypes.HITAG2_ID,
             }
 
             if typ in hf_14a_types:
@@ -891,10 +889,6 @@ class Scanner:
                 result = scan_felica()
 
             elif typ == tagtypes.ISO14443B:      # 22
-                self._call_progress_method(23)
-                result = scan_hfsea()
-
-            elif typ == tagtypes.HITAG2_ID:      # 38
                 self._call_progress_method(23)
                 result = scan_hfsea()
 
