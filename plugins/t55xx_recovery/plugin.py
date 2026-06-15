@@ -15,25 +15,39 @@
 """T55xx Recovery plugin.
 
 Recovers a soft-bricked T55xx tag by trying all downlink modes and
-reference clocks, then falling back to a wipe with default password.
+reference clocks, then running a password dictionary check and wiping
+with any found password before a final detect to confirm B0.
 
 Sequence
 --------
-1. lf t55xx write -b 0 -d 000880E0 --r0
-2. lf t55xx write -b 0 -d 000880E0 --r1
-3. lf t55xx write -b 0 -d 000880E0 --r2
-4. lf t55xx write -b 0 -d 000880E0 --r3
-5. lf t55xx write -b 0 -d 000880E0 --r0 -t
-6. lf t55xx write -b 0 -d 000880E0 --r1 -t
-7. lf t55xx write -b 0 -d 000880E0 --r2 -t
-8. lf t55xx write -b 0 -d 000880E0 --r3 -t
-9. lf t55xx wipe -p 00000000
-10. lf t55xx detect -- final check
+1.  lf t55xx write -b 0 -d 000880E0 --r0
+2.  lf t55xx write -b 0 -d 000880E0 --r1
+3.  lf t55xx write -b 0 -d 000880E0 --r2
+4.  lf t55xx write -b 0 -d 000880E0 --r3
+5.  lf t55xx write -b 0 -d 000880E0 --r0 -t
+6.  lf t55xx write -b 0 -d 000880E0 --r1 -t
+7.  lf t55xx write -b 0 -d 000880E0 --r2 -t
+8.  lf t55xx write -b 0 -d 000880E0 --r3 -t
+9a. lf t55xx chk -f /tmp/.keys/t55xx_default_pwds.dic  (if SD dic available)
+    -- else --
+    lf t55xx chk                                        (PM3 hardcoded default)
+9b. if password found -> lf t55xx wipe -p <PASS>
+10. lf t55xx detect -- confirm B0 == 000880E0
 """
 
-_B0        = '000880E0'
-_DEF_PWD   = '00000000'
-_TIMEOUT   = 10000
+import os
+import re
+import shutil
+
+_B0       = '000880E0'
+_TIMEOUT  = 10000
+_CHK_TIMEOUT  = 180000
+_WIPE_TIMEOUT = 30000
+
+_DIC_SRC = '/mnt/upan/keys/t55xx/t55xx_default_pwds.dic'
+_DIC_DST = '/tmp/.keys/t55xx_default_pwds.dic'
+
+_RE_FOUND_PWD = re.compile(r'\[ ([A-Fa-f0-9]{8}) \]')
 
 
 class T55xxRecoveryPlugin(object):
@@ -68,14 +82,42 @@ class T55xxRecoveryPlugin(object):
         for cmd in cmds:
             executor.startPM3Task(cmd, _TIMEOUT)
 
-        # Step 9: wipe with default password (skip detect — go straight here)
-        executor.startPM3Task('lf t55xx wipe -p %s' % _DEF_PWD, _TIMEOUT)
+        # Step 9a: build chk command — prefer SD dic, fall back to PM3 default
+        use_file = False
+        try:
+            os.makedirs('/tmp/.keys', exist_ok=True)
+            shutil.copy(_DIC_SRC, _DIC_DST)
+            use_file = True
+        except Exception:
+            pass
 
-        # Step 10: final detect
-        ret = executor.startPM3Task('lf t55xx detect', _TIMEOUT)
-        if ret != -1:
+        if use_file:
+            chk_cmd = 'lf t55xx chk -f %s' % _DIC_DST
+        else:
+            chk_cmd = 'lf t55xx chk'
+
+        executor.startPM3Task(chk_cmd, _CHK_TIMEOUT)
+
+        # Step 9b: parse chk output for found password
+        content = executor.getPrintContent() or ''
+        found_pwd = None
+        for line in content.splitlines():
+            if 'found valid password' in line.lower():
+                m = _RE_FOUND_PWD.search(line)
+                if m:
+                    found_pwd = m.group(1).upper()
+                    break
+
+        if found_pwd:
+            executor.startPM3Task('lf t55xx wipe -p %s' % found_pwd, _WIPE_TIMEOUT)
+
+        # Step 10: final detect — confirm B0 is restored
+        executor.startPM3Task('lf t55xx detect', _TIMEOUT)
+        detect_content = executor.getPrintContent() or ''
+
+        if _B0 in detect_content:
             self.host.set_var('result_msg', 'Tag recovered!')
             return {'status': 'done'}
 
-        self.host.set_var('result_msg', 'Recovery failed\nTag unresponsive')
+        self.host.set_var('result_msg', 'Could not detect\nT55xx B0')
         return {'status': 'failed'}
