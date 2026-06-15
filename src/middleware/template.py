@@ -165,7 +165,7 @@ def __drawFinalByData(data, parent):
         return
     entry = TYPE_TEMPLATE[typ]
     frequency = entry[0]
-    display_name = entry[1]
+    display_name = data.get('display_name') or entry[1]
     family = entry[2]
     __drawFinal(parent, family, frequency, display_name)
 
