@@ -28,13 +28,10 @@
             "screen": {
                 "title": "Chk T55xx Pwds",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {"text": "Checking T55xx passwords...", "size": "medium"},
-                        {"text": ""},
-                        {"text": "This can take up to 40s", "size": "medium"},
-                        {"text": "Please wait", "size": "medium"}
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {"left": null, "right": null}
             },
@@ -70,12 +67,10 @@
             "screen": {
                 "title": "Chk T55xx Pwds",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {"text": "Wiping tag...", "size": "medium"},
-                        {"text": ""},
-                        {"text": "Please wait", "size": "medium"}
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {"left": null, "right": null}
             },
