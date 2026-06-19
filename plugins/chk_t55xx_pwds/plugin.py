@@ -29,6 +29,13 @@ _DIC_SRC  = '/mnt/upan/keys/t55xx/t55xx_default_pwds.dic'
 _DIC_DST  = '/tmp/.keys/t55xx_default_pwds.dic'
 _OUT_FILE = '/tmp/t55xx_chk_out.txt'
 
+# Progress checkpoints
+_PROG_START    =  0
+_PROG_DIC_DONE = 10
+_PROG_CHK_START = 15
+_PROG_CHK_DONE  = 90
+_PROG_DONE      = 100
+
 
 class T55xxPwdCheckPlugin(object):
     """Entry class for the T55xx Pwd Check plugin."""
@@ -41,6 +48,7 @@ class T55xxPwdCheckPlugin(object):
         self.host.set_var('error_msg', '')
         self.host.set_var('found_pwds', '')
         self.host.set_var('found_pwd', '')
+        self.host.set_progress(_PROG_START, 'Starting...')
 
         # ── Step 1: imports ───────────────────────────────────────────
         try:
@@ -60,13 +68,17 @@ class T55xxPwdCheckPlugin(object):
             self.host.set_var('error_msg', 'Copy error')
             return {'status': 'error'}
 
-        # ── Step 4: run chk ───────────────────────────────────────────
+        self.host.set_progress(_PROG_DIC_DONE, 'Dictionary loaded...')
+
+        # ── Step 3: run chk ───────────────────────────────────────────
+        self.host.set_progress(_PROG_CHK_START, 'Checking passwords...')
         executor.startPM3Task(
             'lf t55xx chk -f %s' % _DIC_DST,
             180000,
         )
 
-        # ── Step 5: get output and find password ──────────────────────
+        # ── Step 4: get output and find password ──────────────────────
+        self.host.set_progress(_PROG_CHK_DONE, 'Parsing results...')
         content = executor.getPrintContent() or ''
         try:
             with open(_OUT_FILE, 'w') as f:
@@ -83,9 +95,9 @@ class T55xxPwdCheckPlugin(object):
                     if key not in found_keys:
                         found_keys.append(key)
 
-        # ── Step 6: result ────────────────────────────────────────────
+        # ── Step 5: result ────────────────────────────────────────────
+        self.host.set_progress(_PROG_DONE, 'Done')
         if found_keys:
-            # Store first password for wipe, all for display
             self.host.set_var('found_pwd', found_keys[0])
             self.host.set_var('found_pwds', '\n'.join(found_keys[:4]))
             return {'status': 'found'}
@@ -95,6 +107,7 @@ class T55xxPwdCheckPlugin(object):
     def do_wipe(self):
         """Wipe tag using found password. Called via on_enter:run:do_wipe."""
         self.host.set_var('error_msg', '')
+        self.host.set_progress(0, 'Wiping tag...')
 
         try:
             import executor
@@ -108,6 +121,7 @@ class T55xxPwdCheckPlugin(object):
             return {'status': 'error'}
 
         ret = executor.startPM3Task('lf t55xx wipe -p %s' % pwd, 30000)
+        self.host.set_progress(100, 'Done')
 
         if ret == -1:
             self.host.set_var('error_msg', 'Wipe failed')
