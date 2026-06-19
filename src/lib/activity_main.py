@@ -7009,10 +7009,10 @@ class CardWalletActivity(BaseActivity):
                     [f for f in entries
                      if os.path.isfile(os.path.join(self._dump_dir, f))
                      and any(f.lower().endswith(ext) for ext in valid_ext)])
-                # For T55xx dumps, show only one entry per dump set.
-                # Iceman saves .bin and .json for each dump — deduplicate
-                # by stem, preferring .bin as the canonical entry.
-                if self._card_type == 't55xx':
+                # For types where iceman saves multiple files per dump set
+                # (.bin + .json etc), show only one entry per stem —
+                # deduplicate by stem, preferring .bin as the canonical entry.
+                if self._card_type in ('t55xx', 'mf1', 'mfu', 'iclass', 'icode'):
                     seen_stems = set()
                     deduped = []
                     for f in all_files:
@@ -7144,9 +7144,9 @@ class CardWalletActivity(BaseActivity):
     def _confirmDelete(self):
         if self._selected_file and self._dump_dir:
             stem = os.path.splitext(self._selected_file)[0]
-            # For T55xx, delete all files sharing the same stem (.bin, .json, .eml etc)
-            # since iceman saves multiple files per dump set.
-            if self._card_type == 't55xx':
+            # For types where iceman saves multiple files per dump set,
+            # delete all files sharing the same stem (.bin, .json, .eml etc).
+            if self._card_type in ('t55xx', 'mf1', 'mfu', 'iclass', 'icode'):
                 try:
                     for f in os.listdir(self._dump_dir):
                         if os.path.splitext(f)[0] == stem:
