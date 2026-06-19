@@ -15,8 +15,9 @@
 """T55xx Recovery plugin.
 
 Recovers a soft-bricked T55xx tag by trying all downlink modes and
-reference clocks, then running a password dictionary check and wiping
-with any found password before a final detect to confirm B0.
+reference clocks, then wiping with the default password, running a
+password dictionary check and wiping with any found password before
+a final detect to confirm B0.
 
 Sequence
 --------
@@ -28,19 +29,22 @@ Sequence
 6.  lf t55xx write -b 0 -d 000880E0 --r1 -t
 7.  lf t55xx write -b 0 -d 000880E0 --r2 -t
 8.  lf t55xx write -b 0 -d 000880E0 --r3 -t
-9a. lf t55xx chk -f /tmp/.keys/t55xx_default_pwds.dic  (if SD dic available)
-    -- else --
-    lf t55xx chk                                        (PM3 hardcoded default)
-9b. if password found -> lf t55xx wipe -p <PASS>
-10. lf t55xx detect -- confirm B0 == 000880E0
+9.  lf t55xx wipe -p 00000000
+10. lf t55xx detect -- early exit if B0 already restored
+11a. lf t55xx chk -f /tmp/.keys/t55xx_default_pwds.dic  (if SD dic available)
+     -- else --
+     lf t55xx chk                                        (PM3 hardcoded default)
+11b. if password found -> lf t55xx wipe -p <PASS>
+12. lf t55xx detect -- confirm B0 == 000880E0
 """
 
 import os
 import re
 import shutil
 
-_B0       = '000880E0'
-_TIMEOUT  = 10000
+_B0           = '000880E0'
+_DEF_PWD      = '00000000'
+_TIMEOUT      = 10000
 _CHK_TIMEOUT  = 180000
 _WIPE_TIMEOUT = 30000
 
@@ -82,7 +86,17 @@ class T55xxRecoveryPlugin(object):
         for cmd in cmds:
             executor.startPM3Task(cmd, _TIMEOUT)
 
-        # Step 9a: build chk command — prefer SD dic, fall back to PM3 default
+        # Step 9: wipe with default password
+        executor.startPM3Task('lf t55xx wipe -p %s' % _DEF_PWD, _WIPE_TIMEOUT)
+
+        # Step 10: early detect — skip chk if default wipe already fixed it
+        executor.startPM3Task('lf t55xx detect', _TIMEOUT)
+        early_content = executor.getPrintContent() or ''
+        if _B0 in early_content:
+            self.host.set_var('result_msg', 'Tag recovered!')
+            return {'status': 'done'}
+
+        # Step 11a: build chk command — prefer SD dic, fall back to PM3 default
         use_file = False
         try:
             os.makedirs('/tmp/.keys', exist_ok=True)
@@ -98,7 +112,7 @@ class T55xxRecoveryPlugin(object):
 
         executor.startPM3Task(chk_cmd, _CHK_TIMEOUT)
 
-        # Step 9b: parse chk output for found password
+        # Step 11b: parse chk output for found password
         content = executor.getPrintContent() or ''
         found_pwd = None
         for line in content.splitlines():
@@ -111,7 +125,7 @@ class T55xxRecoveryPlugin(object):
         if found_pwd:
             executor.startPM3Task('lf t55xx wipe -p %s' % found_pwd, _WIPE_TIMEOUT)
 
-        # Step 10: final detect — confirm B0 is restored
+        # Step 12: final detect — confirm B0 is restored
         executor.startPM3Task('lf t55xx detect', _TIMEOUT)
         detect_content = executor.getPrintContent() or ''
 
