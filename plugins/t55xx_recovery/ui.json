@@ -30,13 +30,10 @@
             "screen": {
                 "title": "T55xx Recovery",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {"text": "Recovering tag...", "size": "medium"},
-                        {"text": ""},
-                        {"text": "Please wait", "size": "medium"},
-                        {"text": "This may take 60s+", "size": "medium"}
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {"left": null, "right": null}
             },
