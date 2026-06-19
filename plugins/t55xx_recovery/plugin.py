@@ -53,6 +53,20 @@ _DIC_DST = '/tmp/.keys/t55xx_default_pwds.dic'
 
 _RE_FOUND_PWD = re.compile(r'\[ ([A-Fa-f0-9]{8}) \]')
 
+# Progress checkpoints (value out of 100)
+# Steps 1-8 writes: 7% each (8 * 7 = 56%)
+# Step 9  default wipe:   62%
+# Step 10 early detect:   68%
+# Step 11 chk:            78%
+# Step 11 pwd wipe:       90%
+# Step 12 final detect:  100%
+_PROG_WRITE        = [7, 14, 21, 28, 35, 42, 49, 56]
+_PROG_DEF_WIPE     = 62
+_PROG_EARLY_DETECT = 68
+_PROG_CHK          = 78
+_PROG_WIPE         = 90
+_PROG_DONE         = 100
+
 
 class T55xxRecoveryPlugin(object):
     """Entry class for the T55xx Recovery plugin."""
@@ -64,6 +78,7 @@ class T55xxRecoveryPlugin(object):
         """Run full recovery sequence."""
         self.host.set_var('error_msg', '')
         self.host.set_var('result_msg', '')
+        self.host.set_progress(0, 'Recovering...')
 
         try:
             import executor
@@ -83,13 +98,16 @@ class T55xxRecoveryPlugin(object):
             'lf t55xx write -b 0 -d %s --r3 -t' % _B0,
         ]
 
-        for cmd in cmds:
+        for i, cmd in enumerate(cmds):
             executor.startPM3Task(cmd, _TIMEOUT)
+            self.host.set_progress(_PROG_WRITE[i], 'Recovering...')
 
         # Step 9: wipe with default password
+        self.host.set_progress(_PROG_DEF_WIPE, 'Wiping tag...')
         executor.startPM3Task('lf t55xx wipe -p %s' % _DEF_PWD, _WIPE_TIMEOUT)
 
         # Step 10: early detect — skip chk if default wipe already fixed it
+        self.host.set_progress(_PROG_EARLY_DETECT, 'Detecting...')
         executor.startPM3Task('lf t55xx detect', _TIMEOUT)
         early_content = executor.getPrintContent() or ''
         if _B0 in early_content:
@@ -110,6 +128,7 @@ class T55xxRecoveryPlugin(object):
         else:
             chk_cmd = 'lf t55xx chk'
 
+        self.host.set_progress(_PROG_CHK, 'Checking passwords...')
         executor.startPM3Task(chk_cmd, _CHK_TIMEOUT)
 
         # Step 11b: parse chk output for found password
@@ -123,9 +142,11 @@ class T55xxRecoveryPlugin(object):
                     break
 
         if found_pwd:
+            self.host.set_progress(_PROG_WIPE, 'Wiping tag...')
             executor.startPM3Task('lf t55xx wipe -p %s' % found_pwd, _WIPE_TIMEOUT)
 
         # Step 12: final detect — confirm B0 is restored
+        self.host.set_progress(_PROG_DONE, 'Detecting...')
         executor.startPM3Task('lf t55xx detect', _TIMEOUT)
         detect_content = executor.getPrintContent() or ''
 
