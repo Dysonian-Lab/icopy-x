@@ -469,6 +469,13 @@ class PluginActivity(BaseActivity):
         else:
             self.dismissButton(right=True)
 
+        # If both buttons are null, remove the button bar background too.
+        # dismissButton(left=True) and dismissButton(right=True) only remove
+        # the text tags — the TAG_BTN_BG rect stays unless no-arg
+        # dismissButton() is called, which is what core activities use.
+        if not left_btn and not right_btn:
+            self.dismissButton()
+
         # Show toast if defined in screen
         toast_def = screen.get('toast')
         if toast_def:
