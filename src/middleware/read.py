@@ -138,8 +138,8 @@ def _read_mfc(infos, listener):
         # Total read failure — no blocks readable
         return (-2, '')
 
-    eml_path = hfmfread.save_eml(infos, data_list)
     bin_path = hfmfread.save_bin(infos, data_list)
+    hfmfread.save_json(infos, data_list)
 
     if bin_path:
         return (1, bin_path)
