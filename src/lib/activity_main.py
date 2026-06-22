@@ -8204,19 +8204,58 @@ class ReadFromHistoryActivity(BaseActivity):
             digits = uidlen.replace('B', '') if uidlen else '4'
             cache['len'] = int(digits)
             size = info.get('size', '1K')
+
+            # Attempt to read UID/SAK/ATQA from the .json sidecar produced
+            # by hfmfread.save_json().  These are the real values from the
+            # anticollision response, not derived from the filename.
+            # The JSON stores ATQA in little-endian block order (e.g. '0400');
+            # scan cache uses big-endian display order (e.g. '0004') — swap.
+            # Fall back to filename-parsed values when the sidecar is absent
+            # (e.g. dumps created before this feature, or Gen1a csave path).
+            uid_from_json = None
+            sak_from_json = None
+            atqa_from_json = None
+            len_from_json = None
+            if self._file_path:
+                import json as _json
+                stem = os.path.splitext(self._file_path)[0]
+                json_path = stem + '.json'
+                try:
+                    with open(json_path, 'r') as _jf:
+                        _jdoc = _json.load(_jf)
+                    _card = _jdoc.get('Card', {})
+                    _uid = _card.get('UID', '')
+                    _sak = _card.get('SAK', '')
+                    _atqa = _card.get('ATQA', '')
+                    if _uid:
+                        uid_from_json = _uid.upper()
+                        len_from_json = len(_uid) // 2
+                    if _sak:
+                        sak_from_json = _sak.upper()
+                    if _atqa and len(_atqa) == 4:
+                        # JSON ATQA is LE ('0400') → swap to cache form ('0004')
+                        atqa_from_json = _atqa[2:4] + _atqa[0:2]
+                except Exception:
+                    pass
+
+            # Prefer JSON values; fall back to filename-parsed values
+            cache['uid'] = uid_from_json or uid
+            if len_from_json is not None:
+                cache['len'] = len_from_json
+
             if size == '4K':
-                cache['sak'] = '08'
-                cache['atqa'] = '0004'
+                cache['sak'] = sak_from_json or '08'
+                cache['atqa'] = atqa_from_json or '0004'
                 cache['nameStr'] = 'M1 S70 4K (%s)' % uidlen
                 cache['type'] = 0
             elif size == 'Mini':
-                cache['sak'] = '08'
-                cache['atqa'] = '0004'
+                cache['sak'] = sak_from_json or '08'
+                cache['atqa'] = atqa_from_json or '0004'
                 cache['nameStr'] = 'M1 Mini 0.3K'
                 cache['type'] = 25
             else:
-                cache['sak'] = '08'
-                cache['atqa'] = '0004'
+                cache['sak'] = sak_from_json or '08'
+                cache['atqa'] = atqa_from_json or '0004'
                 cache['nameStr'] = 'M1 S50 1K (%s)' % uidlen
         elif dtk == 'mfu':
             cache['uid'] = info.get('uid', '00000000000000')
