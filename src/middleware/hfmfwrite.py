@@ -115,11 +115,18 @@ def tagChk1(infos, file, newinfos):
 def read_blocks_4file(infos, file):
     """Load blocks from binary dump file.
 
+    bundle arrives from write_file_base as os.path.splitext(path)[0] —
+    i.e. the path WITHOUT extension.  Append .bin here so the open
+    resolves to the correct file.  Without this, open() fails silently
+    (except → {}) and every block falls back to its default, causing
+    block 0 to be synthesised via createManufacturerBlock rather than
+    read from the actual dump.
+
     Returns dict: block_num → 32-char uppercase hex string.
     """
     blocks = {}
     try:
-        with open(file, 'rb') as f:
+        with open(file + '.bin', 'rb') as f:
             block_num = 0
             while True:
                 data = f.read(16)
@@ -130,6 +137,30 @@ def read_blocks_4file(infos, file):
     except Exception:
         return {}
     return blocks
+
+# ---------------------------------------------------------------------------
+# _read_block0_from_json — JSON fallback for block 0
+# ---------------------------------------------------------------------------
+def _read_block0_from_json(file):
+    """Read block 0 hex from companion .json sidecar file.
+
+    Used as a fallback when block 0 is absent from the .bin dict.
+    The .json is the iceman mfc v2 schema saved alongside the .bin —
+    same base path, .json extension.  Block 0 is stored as
+    blocks["0"] = "<32-char uppercase hex>".
+
+    Returns 32-char uppercase hex string, or None if unavailable.
+    """
+    try:
+        import json as _json
+        with open(file + '.json', 'r') as f:
+            doc = _json.load(f)
+        val = doc.get('blocks', {}).get('0')
+        if val and len(val) >= 32:
+            return val.upper()[:32]
+    except Exception:
+        pass
+    return None
 
 # ---------------------------------------------------------------------------
 # write_block / start_wrbl_cmd — per-block write
@@ -266,9 +297,11 @@ def write_with_standard(infos, file, listener):
         2. Trailer blocks: reverse sector order
            63, 59, 55, 51, 47, 43, 39, 35, 31, 27, 23, 19, 15, 11, 7, 3
 
-    Block 0 uses createManufacturerBlock (UID+BCC+SAK+ATQA from infos).
-    All other blocks use dump file data or EMPTY_DATA.
-    Trailers use dump file data or EMPTY_TRAI.
+    All blocks including block 0 use dump file data directly.
+    read_blocks_4file appends .bin to the bundle path so blocks[0]
+    is the real manufacturer block from the source card dump.
+    Block 0 fallback chain: .bin → JSON blocks["0"] → EMPTY_DATA.
+    All other blocks fall back to EMPTY_DATA / EMPTY_TRAI.
 
     Returns 1 if all blocks succeeded, -1 if any block failed.
     """
@@ -300,9 +333,15 @@ def write_with_standard(infos, file, listener):
         for offset in range(blocks_in_sector - 1):
             block_num = first_block + offset
 
-            # Get block data from dump
-            if block_num == 0:
-                block_data = blocks.get(0, hfmfread.createManufacturerBlock(infos))
+            # Get block data from dump — block 0 reads directly from the
+            # .bin file like all other blocks. read_blocks_4file appends
+            # .bin to the bundle path so blocks[0] is the real manufacturer
+            # block from the source card.
+            # Fallback chain for block 0: .bin → JSON blocks["0"] → EMPTY_DATA.
+            # The JSON fallback protects against edge cases where the .bin read
+            # succeeded but block 0 was missing (e.g. truncated file).
+            if block_num == 0 and 0 not in blocks:
+                block_data = _read_block0_from_json(file) or mifare.EMPTY_DATA
             else:
                 block_data = blocks.get(block_num, mifare.EMPTY_DATA)
 
