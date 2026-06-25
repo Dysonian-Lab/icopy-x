@@ -5972,7 +5972,11 @@ SIM_MAP = [
     # iCopy or Flipper, and iCopy sim wasn't detected by Flipper or RDV4
     # either. Likely a firmware-level Gallagher sim issue, not iCopy-side,
     # but treat as unverified until a real-world detection succeeds.
-    ('Gallagher ID',  29, 'LF', 'lf_gallagher', 'raw',  'lf gallagher sim --raw {}'),
+    # DISABLED for no-flash: firmware reports `lf gallagher sim` as
+    # "to be implemented" (PC-Mode), so the sim is a no-op. Commented out
+    # to remove it from all sim paths (menu list, scan->sim, dump->sim);
+    # restore this line verbatim between the flash and no-flash version or leave disable it was unconfirmed anywho.
+    # ('Gallagher ID',  29, 'LF', 'lf_gallagher', 'raw',  'lf gallagher sim --raw {}'),
 ]
 
 # QEMU-verified defaults from real .so binary (sim_common.sh lines 203-210).
