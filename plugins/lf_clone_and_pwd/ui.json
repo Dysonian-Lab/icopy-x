@@ -93,20 +93,10 @@
             "screen": {
                 "title": "LF Clone & Pwd",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {
-                            "text": "Scanning LF tag...",
-                            "size": "medium"
-                        },
-                        {
-                            "text": ""
-                        },
-                        {
-                            "text": "Please wait",
-                            "size": "medium"
-                        }
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {
                     "left": null,
@@ -364,20 +354,10 @@
             "screen": {
                 "title": "LF Clone & Pwd",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {
-                            "text": "Writing with password",
-                            "size": "medium"
-                        },
-                        {
-                            "text": ""
-                        },
-                        {
-                            "text": "Please wait...",
-                            "size": "medium"
-                        }
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {
                     "left": null,
@@ -395,20 +375,10 @@
             "screen": {
                 "title": "LF Clone & Pwd",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {
-                            "text": "Writing to T55xx...",
-                            "size": "medium"
-                        },
-                        {
-                            "text": ""
-                        },
-                        {
-                            "text": "Please wait",
-                            "size": "medium"
-                        }
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {
                     "left": null,
