@@ -271,9 +271,17 @@ def keysFromPrintParse(size):
             putKey2Map(sector, B, key_b)
 
 def fchks(infos, size, with_call=True):
-    """Fast dictionary key check. PM3: hf mf fchk."""
+    """Fast dictionary key check. PM3: hf mf fchk.
+
+    Key file priority:
+        1. /mnt/upan/keys/mf1/mfc_default_keys.dic — full iceman dictionary
+           on SD card. Most comprehensive, used when available.
+        2. genKeyFile(DEFAULT_KEYS) — hardcoded ~100 key fallback when SD
+           dictionary is absent.
+    """
     uid = infos.get('uid', '') if isinstance(infos, dict) else ''
-    key_file = genKeyFile(uid, list(DEFAULT_KEYS))
+    _SD_DIC = '/mnt/upan/keys/mf1/mfc_default_keys.dic'
+    key_file = _SD_DIC if os.path.exists(_SD_DIC) else genKeyFile(uid, list(DEFAULT_KEYS))
 
     size_flag = {4096: '--4k', 2048: '--2k', 320: '--mini'}.get(size, '--1k')
     cmd = 'hf mf fchk {} -f {}'.format(size_flag, key_file)
