@@ -1,9 +1,6 @@
 # iCopy-X Open
 An Open-Source version of the iCopy-X RFID Cloner device.
 
-## Additional Note:
-This fork will not work with the no-flash version, there are commands and items added that are not supported in the no-flash firmware. Nor do I have any intentions of maintaining backwards compatibility for the no-flash version.
-
 ## What this is:
 
  - Usable: A **complete** rebuild of the iCopy-X device. All device functions are included.
@@ -23,8 +20,9 @@ This fork will not work with the no-flash version, there are commands and items 
  - Screen mirroring: Allows the screen to be streamed to a device via USB. Can't be used at the same time as PC-Mode: Disable / Enable in settings.
 
 # Installation
-There is only **one flavour** to choose from: "Flash".
+There are **two flavours** to choose from: "No Flash" and "Flash".
 
+ - **"No Flash"**: Full open-source system, but leaves your iCopy-X's proxmark module untouched. You can easily move back and forth between factory/vanilla middleware. However, you will be limited to circa ~2022 proxmark client + firmware.
  - **"Flash"**: Full open-source system, running latest iceman firmware + client. You'll be prompted to flash after you install the IPK. Flashing **does not touch the bootloader** - you will NOT brick your device. Likewise, the iCopy-X has protections to recover from a soft-brick.
 
 Installation is simple: 
@@ -37,10 +35,13 @@ Installation is simple:
  5. Navigate to About > Update, and press [OK]
  6. Device will restart
  7. While restarting, the screen will flash and stay blank for up to 10 seconds. Don't panic!
- 8. Device will restart and detect that you need to flash your device. Click OK.
- 9. Read the instructions: Make sure your device has charge, make sure it's plugged in, and then Start
- 10. After flashing, your device will restart.
- 11. While restarting, the screen will stay blank for up to 10 seconds. Don't panic!
+
+If you're using the "flash" version, there will be some extra steps:
+
+ 7. Device will restart and detect that you need to flash your device. Click OK.
+ 8. Read the instructions: Make sure your device has charge, make sure it's plugged in, and then Start
+ 9. After flashing, your device will restart.
+ 10. While restarting, the screen will stay blank for up to 10 seconds. Don't panic!
 
 ## I've installed it - everything looks the same
 
@@ -56,12 +57,12 @@ Try DOOM for a "working" plugin.
 
 When your iCopy-X is in "PC-Mode", you can connect to your iCopy-X's Proxmark module directly from your computer.
 Each release contains multi-platform binaries, compiled to match your device's version:
-
+ - `clients-noflash.zip` : Contains windows, linux and macos clients for the "factory firmware" / "no flash" version
  - `clients-flash.zip` : Contains windows, linux and macos clients for the latest iceman / "flash" version.
 
 ### Using the companion client
 
-1. Download the matching `clients-flash.zip` for your IPK
+1. Download the matching `clients-[flash|noflash].zip` for your IPK variant
 2. Extract to a folder on your computer
 3. Put your iCopy-X into PC-Mode
 4. Connect via USB
