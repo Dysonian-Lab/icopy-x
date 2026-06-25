@@ -30,6 +30,12 @@ ground truth (cmdlft55xx.c:1837-1848 printConfiguration output).
 
 import re
 
+# Progress checkpoints — do_detect / do_detect_pwd
+_PROG_START   =  0
+_PROG_RUNNING = 20
+_PROG_PARSE   = 80
+_PROG_DONE    = 100
+
 # ---------------------------------------------------------------------------
 # Regex patterns — iceman-native, identical to lft55xx.py ground truth.
 # cmdlft55xx.c:1837-1848 printConfiguration() output format:
@@ -148,30 +154,47 @@ class T55xxDetectPlugin(object):
     def do_detect(self):
         """Run lf t55xx detect without password."""
         self._clear_vars()
+        self.host.set_progress(_PROG_START, 'Starting...')
 
         try:
             import executor
         except ImportError:
             return {'status': 'error'}
 
+        self.host.set_progress(_PROG_RUNNING, 'Detecting T55xx...')
         executor.startPM3Task('lf t55xx detect', _TIMEOUT_MS)
 
+        self.host.set_progress(_PROG_PARSE, 'Parsing results...')
         fields = _parse_detect_output(executor)
         if fields is None:
             return {'status': 'error'}
 
         self._apply_result(fields)
+        self.host.set_progress(_PROG_DONE, 'Done')
         return {'status': 'done'}
 
     # ------------------------------------------------------------------
     # Detect with password
     # ------------------------------------------------------------------
 
-    def do_detect_pwd(self):
-        """Capture password from input widget then run lf t55xx detect -p <pwd>."""
-        self._clear_vars()
+    def do_capture_pwd(self):
+        """Capture password from input widget while it is still alive.
 
+        Stores password in 'detect_pwd' state var for do_detect_pwd to use.
+        Called via run: on input_pwd screen before transitioning away.
+        """
         pwd = self.host.get_input().strip().upper()
+        if len(pwd) != 8:
+            return {'status': 'error'}
+        self.host.set_var('detect_pwd', pwd)
+        return {'status': 'ok'}
+
+    def do_detect_pwd(self):
+        """Run lf t55xx detect -p <pwd> using password captured by do_capture_pwd."""
+        self._clear_vars()
+        self.host.set_progress(_PROG_START, 'Starting...')
+
+        pwd = self.host.get_var('detect_pwd', '')
         if len(pwd) != 8:
             return {'status': 'error'}
 
@@ -180,11 +203,14 @@ class T55xxDetectPlugin(object):
         except ImportError:
             return {'status': 'error'}
 
+        self.host.set_progress(_PROG_RUNNING, 'Detecting T55xx...')
         executor.startPM3Task('lf t55xx detect -p %s' % pwd, _TIMEOUT_MS)
 
+        self.host.set_progress(_PROG_PARSE, 'Parsing results...')
         fields = _parse_detect_output(executor)
         if fields is None:
             return {'status': 'error'}
 
         self._apply_result(fields)
+        self.host.set_progress(_PROG_DONE, 'Done')
         return {'status': 'done'}
