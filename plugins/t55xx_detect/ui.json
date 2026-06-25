@@ -50,9 +50,30 @@
                     "right": "Detect"
                 },
                 "keys": {
-                    "OK": "run:do_detect_pwd",
-                    "M2": "run:do_detect_pwd",
+                    "OK": "run:do_capture_pwd",
+                    "M2": "run:do_capture_pwd",
                     "M1": "set_state:idle"
+                }
+            },
+            "transitions": {
+                "on_result.status==ok": "detecting_pwd",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "detecting_pwd": {
+            "on_enter": "run:do_detect_pwd",
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
                 }
             },
             "transitions": {
@@ -66,22 +87,10 @@
             "screen": {
                 "title": "T55xx Detect",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {
-                            "text": "Detecting...",
-                            "size": "medium",
-                            "align": "center"
-                        },
-                        {
-                            "text": ""
-                        },
-                        {
-                            "text": "Please wait",
-                            "size": "medium",
-                            "align": "center"
-                        }
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {
                     "left": null,
