@@ -75,6 +75,28 @@ Password lock sequence (all supported types):
 
 import re as _re
 
+# Progress checkpoints — do_scan
+_SCAN_PROG_START   =  0
+_SCAN_PROG_RUNNING = 20
+_SCAN_PROG_PARSE   = 80
+_SCAN_PROG_DONE    = 100
+
+# Progress checkpoints — do_write (no password)
+_WRITE_PROG_START  =  0
+_WRITE_PROG_WRITE  = 50
+_WRITE_PROG_DONE   = 100
+
+# Progress checkpoints — do_write_actual (with password)
+_PWD_PROG_START    =  0
+_PWD_PROG_DETECT   =  5
+_PWD_PROG_CLONE    = 35
+_PWD_PROG_REDETECT = 45
+_PWD_PROG_WR_B7    = 60
+_PWD_PROG_RD_B7    = 70
+_PWD_PROG_WR_B0    = 85
+_PWD_PROG_VERIFY   = 95
+_PWD_PROG_DONE     = 100
+
 # T55x7_PWD bit (bit 28 from MSB) — from cmdlft55xx.h
 T55X7_PWD = 0x00000010
 
@@ -223,6 +245,7 @@ class LFClonePwdPlugin(object):
         self.host.set_var('tag_typ',   '')
         self.host.set_var('tag_raw',   '')
         self.host.set_var('tag_infos', '')
+        self.host.set_progress(_SCAN_PROG_START, 'Starting...')
 
         try:
             import executor
@@ -231,6 +254,7 @@ class LFClonePwdPlugin(object):
             self.host.set_var('error_msg', 'Import error')
             return {'status': 'error'}
 
+        self.host.set_progress(_SCAN_PROG_RUNNING, 'Scanning LF tag...')
         executor.startPM3Task(lfsearch.CMD, lfsearch.TIMEOUT)
 
         # Extract KERI decimal internal ID BEFORE parser() is called
@@ -242,6 +266,7 @@ class LFClonePwdPlugin(object):
         if m:
             keri_id = m.group(1)
 
+        self.host.set_progress(_SCAN_PROG_PARSE, 'Parsing results...')
         result = lfsearch.parser()
 
         if not result.get('found'):
@@ -287,6 +312,7 @@ class LFClonePwdPlugin(object):
         self.host.set_var('tag_typ',   str(typ))
         self.host.set_var('tag_raw',   tag_raw)
         self.host.set_var('tag_infos', repr(result))
+        self.host.set_progress(_SCAN_PROG_DONE, 'Done')
 
         return {'status': 'found' if lock_ok else 'found_no_lock'}
 
@@ -330,6 +356,7 @@ class LFClonePwdPlugin(object):
         """Write clone using lfwrite.write() — handles all types correctly."""
         self.host.set_var('error_msg', '')
         self.host.set_var('done_msg', 'Written without password')
+        self.host.set_progress(_WRITE_PROG_START, 'Starting...')
 
         try:
             import lfwrite
@@ -348,6 +375,7 @@ class LFClonePwdPlugin(object):
             self.host.set_var('error_msg', 'Bad tag data')
             return {'status': 'error'}
 
+        self.host.set_progress(_WRITE_PROG_WRITE, 'Writing to T55xx...')
         ret = lfwrite.write(None, typ, infos, raw, key=None)
 
         if ret == -9:
@@ -358,6 +386,7 @@ class LFClonePwdPlugin(object):
             self.host.set_var('error_msg', 'Write failed')
             return {'status': 'error'}
 
+        self.host.set_progress(_WRITE_PROG_DONE, 'Done')
         return {'status': 'done'}
 
     # ------------------------------------------------------------------
@@ -386,6 +415,7 @@ class LFClonePwdPlugin(object):
         """Clone and set password using type-specific sequence."""
         self.host.set_var('error_msg', '')
         self.host.set_var('done_msg', '')
+        self.host.set_progress(_PWD_PROG_START, 'Starting...')
 
         pwd = self.host.get_var('write_pwd', '')
         if len(pwd) != 8:
@@ -417,12 +447,14 @@ class LFClonePwdPlugin(object):
         expected_b0 = _locked_b0(typ)
 
         # Step 1: detect — sync PM3 config knowledge
+        self.host.set_progress(_PWD_PROG_DETECT, 'Detecting T55xx...')
         ret = executor.startPM3Task('lf t55xx detect', 10000)
         if ret == -1:
             self.host.set_var('error_msg', 'T55xx not detected')
             return {'status': 'error'}
 
         # Step 2: clone using type-specific command
+        self.host.set_progress(_PWD_PROG_CLONE, 'Cloning tag...')
         ret = _run_clone(typ, raw, infos, executor)
         if ret == -1:
             self.host.set_var('error_msg', 'Clone failed')
@@ -430,9 +462,11 @@ class LFClonePwdPlugin(object):
 
         # Step 3: re-detect after clone — ensures PM3 re-syncs tag config
         # before block writes regardless of clone method used
+        self.host.set_progress(_PWD_PROG_REDETECT, 'Re-detecting...')
         executor.startPM3Task('lf t55xx detect', 10000)
 
         # Step 4: write password to block 7 — tag still unlocked
+        self.host.set_progress(_PWD_PROG_WR_B7, 'Writing password...')
         ret = executor.startPM3Task(
             'lf t55xx write -b 7 -d %s' % pwd, 15000)
         if ret == -1:
@@ -440,9 +474,11 @@ class LFClonePwdPlugin(object):
             return {'status': 'error'}
 
         # Step 5: read block 7 to verify password written correctly
+        self.host.set_progress(_PWD_PROG_RD_B7, 'Verifying block 7...')
         executor.startPM3Task('lf t55xx read -b 7', 10000)
 
         # Step 6: write block 0 with PWD bit — tag now pwd protected
+        self.host.set_progress(_PWD_PROG_WR_B0, 'Setting PWD bit...')
         ret = executor.startPM3Task(
             'lf t55xx write -b 0 -d %s' % expected_b0, 15000)
         if ret == -1:
@@ -453,6 +489,7 @@ class LFClonePwdPlugin(object):
         # extended mode tags, second settles correctly.
         # Noralsy(33): --r0 forces fixed bit length downlink as some hardware
         # detects post-lock Noralsy in leading zero mode without it.
+        self.host.set_progress(_PWD_PROG_VERIFY, 'Verifying lock...')
         detect_cmd = ('lf t55xx detect --r0 -p %s' % pwd
                       if typ == 33 else
                       'lf t55xx detect -p %s' % pwd)
@@ -471,5 +508,7 @@ class LFClonePwdPlugin(object):
         if b0_match.group(1).upper() != expected_b0.upper():
             self.host.set_var('error_msg', 'B0 mismatch\n%s' % b0_match.group(1))
             return {'status': 'error'}
+
+        self.host.set_progress(_PWD_PROG_DONE, 'Done')
         self.host.set_var('done_msg', 'Written & pwd set\n%s' % pwd)
         return {'status': 'done'}
