@@ -34,10 +34,28 @@
                 },
                 "buttons": {"left": "Back", "right": "Wipe"},
                 "keys": {
-                    "OK": "run:do_wipe_pwd",
-                    "M2": "run:do_wipe_pwd",
+                    "OK": "run:do_capture_pwd",
+                    "M2": "run:do_capture_pwd",
                     "M1": "set_state:idle"
                 }
+            },
+            "transitions": {
+                "on_result.status==ok": "wiping_pwd",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "wiping_pwd": {
+            "on_enter": "run:do_wipe_pwd",
+            "screen": {
+                "title": "T55xx Wipe",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {"left": null, "right": null}
             },
             "transitions": {
                 "on_result.status==done": "done",
@@ -50,12 +68,10 @@
             "screen": {
                 "title": "T55xx Wipe",
                 "content": {
-                    "type": "text",
-                    "lines": [
-                        {"text": "Wiping T55xx...", "size": "medium"},
-                        {"text": ""},
-                        {"text": "Please wait", "size": "medium"}
-                    ]
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
                 },
                 "buttons": {"left": null, "right": null}
             },
