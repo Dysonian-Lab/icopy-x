@@ -1,6 +1,6 @@
 {
     "name": "T55xx Block Reader",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Amec0e",
     "description": "Read a single T55xx block or a range of blocks with optional password",
     "entry_class": "T55xxBlockReaderPlugin",
