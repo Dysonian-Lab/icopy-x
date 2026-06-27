@@ -1,6 +1,6 @@
 {
     "name": "T55xx Recovery",
-    "version": "1.0.0",
+    "version": "1.0.7",
     "author": "Amec0e",
     "description": "Recovers a soft-bricked T55xx tag",
     "entry_class": "T55xxRecoveryPlugin",
