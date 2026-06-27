@@ -1,6 +1,6 @@
 {
     "name": "T55xx Block Writer",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "author": "Amec0e",
     "description": "Write a hex value to a specific T55xx block with optional password",
     "entry_class": "T55xxBlockWriterPlugin",
