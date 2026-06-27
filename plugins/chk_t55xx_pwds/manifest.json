@@ -1,6 +1,6 @@
 {
     "name": "Chk T55xx Pwds",
-    "version": "4.0.0",
+    "version": "1.0.4",
     "author": "Amec0e",
     "description": "Check T55xx tag passwords using custom dictionary",
     "entry_class": "T55xxPwdCheckPlugin",
