@@ -700,10 +700,34 @@ def parser():
         seaObj['found'] = True
         return seaObj
 
-    # Check 22: Hitag
-    if executor.hasKeyword('Valid Hitag'):
+    # Check 21b: Paxton Net2
+    # lf sea on firmware with Paxton support probes Hitag2 with the default
+    # Paxton key (0xBDF5E846) and emits "Valid Paxton ID found!" followed by
+    # "Chipset... Hitag 2". Must be checked before Check 22 so the Paxton
+    # card is not swallowed by the generic Hitag 2 path.
+    if executor.hasKeyword('Valid Paxton ID found!'):
         seaObj = {}
-        setUID(seaObj)
+        uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+        seaObj['data'] = uid.strip() if uid else ''
+        seaObj['raw'] = seaObj['data']
+        seaObj['type'] = tagtypes.PAXTON_NET2_ID
+        seaObj['found'] = True
+        return seaObj
+
+    # Check 22: Hitag 2
+    # Iceman lf search emits "Chipset... Hitag 2" (via the auth LF special-cases
+    # probe) rather than the legacy "Valid Hitag" keyword which no longer exists
+    # in iceman. Confirmed from terminal output: UID....... <8hex> (7 dots) +
+    # TYPE...... PCF 7936 + Chipset... Hitag 2. REGEX_CARD_ID does not match
+    # the dotted UID label so a dedicated regex captures the UID.
+    # Gated on absence of "Valid Paxton ID found!" because Paxton output
+    # includes "Chipset... Hitag 2" — Check 21b handles that case first,
+    # but the gate here prevents false Hitag2 matches if check order ever shifts.
+    if executor.hasKeyword('Chipset... Hitag 2') and not executor.hasKeyword('Valid Paxton ID found!'):
+        seaObj = {}
+        uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+        seaObj['data'] = uid.strip() if uid else ''
+        seaObj['raw'] = seaObj['data']
         seaObj['type'] = tagtypes.HITAG2_ID
         seaObj['found'] = True
         return seaObj
