@@ -1,6 +1,6 @@
 {
     "name": "LF Clone & Pwd",
-    "version": "2.0.0",
+    "version": "2.1.4",
     "author": "Amec0e",
     "description": "Scan LF tag, dump it, write to T55xx with optional password lock",
     "entry_class": "LFClonePwdPlugin",
