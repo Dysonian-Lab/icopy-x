@@ -81,6 +81,7 @@ DIR_NAME_GALLAGHER = 'gallagher'
 DIR_NAME_JABLOTRON = 'jablotron'
 DIR_NAME_SECURAKEY = 'securakey'
 DIR_NAME_NEDAP = 'nedap'
+DIR_NAME_PAXTON = 'paxton'
 
 # Constructed dump paths
 PATH_DUMP_M1 = PATH_DUMP + DIR_NAME_M1 + '/'
@@ -93,6 +94,7 @@ PATH_DUMP_EM410X = PATH_DUMP + DIR_NAME_EM410X + '/'
 PATH_DUMP_EM4X05 = PATH_DUMP + DIR_NAME_EM4X05 + '/'
 PATH_DUMP_FELICA = PATH_DUMP + DIR_NAME_FELICA + '/'
 PATH_DUMP_ICLASS = PATH_DUMP + DIR_NAME_ICLASS + '/'
+PATH_DUMP_PAXTON = PATH_DUMP + DIR_NAME_PAXTON + '/'
 
 # Key storage paths
 PATH_KEYS_M1 = PATH_KEYS + DIR_NAME_M1 + '/'
@@ -287,7 +289,7 @@ def get_card_list():
         DIR_NAME_KERI, DIR_NAME_PRESCO, DIR_NAME_VIKING, DIR_NAME_GPROXII,
         DIR_NAME_NORALSY, DIR_NAME_PARADOX, DIR_NAME_PYRAMID, DIR_NAME_NEXWATCH,
         DIR_NAME_VISA2000, DIR_NAME_GALLAGHER, DIR_NAME_JABLOTRON,
-        DIR_NAME_SECURAKEY, DIR_NAME_NEDAP,
+        DIR_NAME_SECURAKEY, DIR_NAME_NEDAP, DIR_NAME_PAXTON,
     ]
 
 
@@ -342,6 +344,7 @@ def create_t55xx(b0, b1='00000000', b2='00000000'):
     """Create T55XX dump path using block values in the filename.
 
     Returns next available path: /mnt/upan/dump/t55xx/T55xx_<b0>_<b1>_<b2>_N
+    (without extension — iceman appends .bin and .json automatically).
     """
     mkdirs_on_icopy(PATH_DUMP_T55XX)
     b0 = b0.upper() if b0 else '00000000'
@@ -433,6 +436,10 @@ def create_securakey(uid, file):
 
 def create_nedap(uid, file):
     mkdirs_on_icopy(PATH_DUMP + DIR_NAME_NEDAP + '/')
+
+
+def create_paxton(uid, file):
+    mkdirs_on_icopy(PATH_DUMP_PAXTON)
 
 
 def create_mf1_keys(uid, file):
