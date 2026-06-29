@@ -836,6 +836,51 @@ def __drawTopaz(data, parent):
         __drawDataLines(parent, lines, base_y=y)
 
 
+
+def __drawPaxton(data, parent):
+    """Paxton renderer — handles both Net2 (type 48) and Switch2 (type 49).
+
+    Net2  (type 48):
+      line 1 (y=128): ID: <5-byte hex padded Paxton ID>  e.g. 0003c3f9b6
+      line 2 (y=151): UID: <Hitag2 internal UID>         e.g. A4B90915
+
+    Switch2 (type 49):
+      line 1 (y=128): UID: <Hitag2 internal UID>         e.g. A4B90915
+
+    data['data'] holds the 5-byte padded hex Paxton ID.
+    data['uid']  holds the Hitag2 internal UID from lf search.
+    """
+    __drawFinalByData(data, parent)
+    if data is None:
+        return
+
+    data_font = resources.get_font_force_en(13)
+    typ = data.get('type', 48)
+    is_switch2 = (typ == 49)
+
+    if not is_switch2:
+        paxton_id = data.get('data', '')
+        if paxton_id:
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y,
+                text='ID: {}'.format(paxton_id),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+
+    uid = data.get('uid', '')
+    if uid:
+        uid_y = _DATA_START_Y if is_switch2 else _DATA_START_Y + _DATA_LINE_H
+        parent.create_text(
+            _LEFT_X, uid_y,
+            text='UID: {}'.format(uid),
+            font=data_font,
+            anchor='nw',
+            tags=_TAG_DATA,
+        )
+
+
 # ---------------------------------------------------------------------------
 # TYPE_TEMPLATE — tag type ID -> (frequency, display_name, family, draw_func)
 # Complete 48 entries from spec section 2, cross-referenced with
@@ -890,6 +935,8 @@ TYPE_TEMPLATE = {
     45: ('125KHZ',   'NexWatch ID',          'NexWatch',     __drawID),
     46: ('13.56MHZ', 'ISO15693 ST SA',       'ISO15693',     __drawID),
     47: ('13.56MHZ', 'iCLASS SE',           'iCLASS',       __draw_iclass),
+    48: ('125KHZ',   'Paxton Net2',          'PAXTON',       __drawPaxton),
+    49: ('125KHZ',   'Paxton Switch2',       'PAXTON',       __drawPaxton),
 }
 
 
