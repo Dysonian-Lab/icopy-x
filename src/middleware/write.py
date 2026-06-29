@@ -114,7 +114,11 @@ _MF_CLASSIC_TYPES = {0, 1, 25, 26, 40, 41, 42, 43, 44}
 _MF_ULTRALIGHT_TYPES = {2, 3, 4, 5, 6, 7}
 
 # LF types (125 kHz)
-_LF_TYPES = {8, 9, 10, 11, 12, 13, 14, 15, 16, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 45}
+# Types 48 (Paxton Net2) and 49 (Paxton Switch2) are included here: write
+# dispatches through lfwrite.write() via HITAG_WRITE_MAP → write_paxton_blocks(),
+# with raw_par sourced from _RAW_CLONE_PAR_TYPES (32-char block 4-7 payload
+# from readPaxton()).
+_LF_TYPES = {8, 9, 10, 11, 12, 13, 14, 15, 16, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 45, 48, 49}
 
 # T55xx / EM4305 (LF but with dump files)
 _LF_DUMP_TYPES = {23, 24}
@@ -126,6 +130,8 @@ _ICLASS_TYPES = {17, 18, 47}
 _ISO15693_TYPES = {19, 46}
 
 # Unsupported types (read-only or not implemented)
+# Type 38 (Hitag2) is read-only: readHitag2() saves dumps and redirects
+# Paxton cards; no write_hitag2_blocks() dispatch wired yet.
 _UNSUPPORTED_TYPES = {20, 21, 22, 27, 38, 39}
 
 
@@ -181,6 +187,13 @@ def write(listener, infos, bundle, run_on_subthread=True):
                         data = data_field
                     raw = raw or infos.get('raw', '')
 
+                # Paxton: scan cache raw is intentionally '' (block payload not
+                # available from lf sea). Fall back to bundle which carries the
+                # 32-char block payload from readPaxton(). Covers both Net2 (48)
+                # and Switch2 (49) — same raw field, same bundle shape.
+                if not raw and typ in (48, 49) and isinstance(bundle, dict):
+                    raw = bundle.get('raw', '')
+
                 # PAR_CLONE_MAP types: cache `data` shape varies per tag,
                 # so dispatch must pick the field the writer can actually
                 # parse.  Audit (lfsearch.py:434+ cache setters):
@@ -200,13 +213,10 @@ def write(listener, infos, bundle, run_on_subthread=True):
                 #                 starting at 1, then B0; card id would corrupt)
                 #
                 # Special-case the writers that strictly need `raw`:
-                # HID, Indala, FDX-B, NEDAP.  Iceman cmdlfindala.c:790
-                # _RED_("Warning, encoding with FC/CN doesn't always
-                # work") confirms raw is universally correct for HID +
-                # Indala; cmdlffdxb.c:712 CLIParser argtable uses
-                # `--country <dec> --national <dec>` which write_fdx_par
-                # parses from the `<C>-<N>` form held in `raw`.
-                _RAW_CLONE_PAR_TYPES = {9, 10, 28, 32}  # HID Prox, Indala, FDX-B, NEDAP
+                # HID, Indala, FDX-B, NEDAP, Paxton Net2, Paxton Switch2.
+                # Paxton: data=10-char Paxton ID (display only), raw=32-char
+                # block 4-7 payload (write payload for write_paxton_blocks()).
+                _RAW_CLONE_PAR_TYPES = {9, 10, 28, 32, 48, 49}  # HID Prox, Indala, FDX-B, NEDAP, Paxton
                 if typ in _RAW_CLONE_PAR_TYPES:
                     raw_par = raw if raw else data
                 elif typ in getattr(lfwrite, 'PAR_CLONE_MAP', {}):
