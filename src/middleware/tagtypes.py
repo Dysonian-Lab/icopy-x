@@ -92,6 +92,7 @@ NEXWATCH_ID = 45
 ISO15693_ST_SA = 46
 ICLASS_SE = 47
 PAXTON_NET2_ID = 48
+PAXTON_SWITCH2_ID = 49
 UNSUPPORTED = -1
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,8 @@ types = {
     45:  ('NexWatch ID', True, True),
     46:  ('ISO15693 ST SA', True, True),
     47:  ('iClass SE', True, True),
-    48:  ('Paxton Net2', True, False),
+    48:  ('Paxton Net2', True, True),
+    49:  ('Paxton Switch2', True, True),
 }
 
 
@@ -221,7 +223,7 @@ def getAllHigh():
 
 def getAllLow():
     return [8, 9, 10, 11, 12, 13, 14, 15, 16, 23, 24, 27,
-            28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 45, 48]
+            28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 45, 48, 49]
 
 def getAllLowCanDump():
     return [23, 24]
