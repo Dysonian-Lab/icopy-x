@@ -71,6 +71,7 @@ _PUBLIC_ID = {
     45: 'ID1',     # NexWatch
     46: '\u7279\u65af\u8054',  # 特斯联
     48: 'Paxton',  # Paxton Net2
+    49: 'Paxton',  # Paxton Switch2
 }
 
 
