@@ -310,6 +310,44 @@ def write_nedap(raw):
     return True
 
 
+def write_paxton_blocks(raw):
+    """Write Paxton Net2 user data blocks 4-7 to a Hitag2 tag.
+
+    Pre-flight: lf search must confirm 'Valid Paxton ID found!' specifically —
+    a generic Hitag2 that does not carry a Paxton ID is rejected here.
+
+    Command: lf hitag wrbl --ht2 -p <block> -d <8hex> -k BDF5E846
+
+    Paxton stores its access-control payload in blocks 4-7 only. This writer
+    targets exactly those four blocks from the 32-char hex payload produced
+    by readPaxton() and stored as line 1 of the Paxton dump file.
+
+    Args:
+        raw: 32-char hex string — blocks 4-7 concatenated (4 × 4 bytes)
+             as saved by readPaxton() (e.g. 'B4C27AC0C93F00010010000706C70010').
+
+    Returns 1 on success, -9 on failure (lfwrite convention).
+    """
+    if not raw or len(raw) != 32:
+        return -9
+
+    # Pre-flight: confirm this is specifically a Paxton card
+    ret = executor.startPM3Task('lf search', 30000)
+    if ret == -1 or not executor.hasKeyword('Valid Paxton ID found!'):
+        return -9
+
+    import time as _time
+    for i, blk in enumerate(range(4, 8)):
+        block_data = raw[i * 8:(i + 1) * 8].upper()
+        cmd = 'lf hitag wrbl --ht2 -p {} -d {} -k BDF5E846'.format(blk, block_data)
+        ret = executor.startPM3Task(cmd, 30000)
+        if ret == -1:
+            return -9
+        _time.sleep(0.5)
+
+    return 1
+
+
 # PAR_CLONE_MAP: tag type ID -> function for parameter-based cloning
 PAR_CLONE_MAP = {
     8:  write_em410x,
@@ -318,6 +356,8 @@ PAR_CLONE_MAP = {
     28: write_fdx_par,
     31: write_keri,
     32: write_nedap,
+    48: write_paxton_blocks,
+    49: write_paxton_blocks,
 }
 
 
@@ -620,6 +660,16 @@ DUMP_WRITE_MAP = {
     24: write_dump_em4x05,
 }
 
+# HITAG_WRITE_MAP: tag type ID -> write function for Hitag2-based types.
+# These bypass check_detect and _inline_verify entirely — they write directly
+# to the Hitag2 chip via authenticated block writes and handle their own
+# pre-flight. Running check_detect (lf t55xx wipe/detect) against a Hitag2
+# card is wrong chip, wrong protocol.
+HITAG_WRITE_MAP = {
+    48: write_paxton_blocks,        # Paxton Net2 — blocks 4-7
+    49: write_paxton_blocks,        # Paxton Switch2 — same block write path
+}
+
 
 def check_detect(key=None, listener=None):
     """Detect T55xx tag before write, wipe if password-protected.
@@ -737,12 +787,14 @@ def write(listener, typ, infos, raw_par, key=None):
 
     Ground truth: lfwrite_strings.txt + archive/lib_transliterated/lfwrite.py
     Dispatch:
-    1. If typ in DUMP_WRITE_MAP: write dump
-    2. detect + wipe if needed
-    3. If typ in PAR_CLONE_MAP: write by parameters
-    4. If typ in RAW_CLONE_MAP: write raw clone
-    5. If typ in B0_WRITE_MAP: write raw with B0
-    6. Else: return -9
+    1. If typ in DUMP_WRITE_MAP: write dump (T55xx/EM4305)
+    2. If typ in DIRECT_WRITE_MAP: call PAR_CLONE_MAP fn directly, bypassing
+       check_detect and _inline_verify (Hitag2-based types — Paxton)
+    3. detect + wipe T55xx target if needed
+    4. If typ in PAR_CLONE_MAP: write by parameters
+    5. If typ in RAW_CLONE_MAP: write raw clone
+    6. If typ in B0_WRITE_MAP: write raw with B0
+    7. Else: return -9
     """
     if not infos:
         return -9
@@ -763,6 +815,18 @@ def write(listener, typ, infos, raw_par, key=None):
             if ret == -1:
                 return -9
             return ret
+
+    # Hitag2 write — bypasses T55xx check_detect and _inline_verify entirely.
+    # Used for Hitag2-based types (Paxton) whose write functions handle their
+    # own pre-flight (lf search) and write directly to the Hitag2 chip via
+    # authenticated block writes. Running check_detect here would send
+    # lf t55xx wipe / lf t55xx detect against a Hitag2 card — wrong chip,
+    # wrong protocol.
+    if typ in HITAG_WRITE_MAP:
+        ret = HITAG_WRITE_MAP[typ](raw_par)
+        if ret is None or ret == -1 or ret == -9:
+            return -9
+        return 1
 
     # For all other LF types, detect T55xx and wipe if needed
     detect_ret = check_detect(key, listener=listener)
