@@ -70,6 +70,7 @@ _PUBLIC_ID = {
     44: 'M1-7b',   # MF Plus 2K Gen2 7B
     45: 'ID1',     # NexWatch
     46: '\u7279\u65af\u8054',  # 特斯联
+    48: 'Paxton',  # Paxton Net2
 }
 
 
