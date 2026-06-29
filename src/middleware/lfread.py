@@ -129,6 +129,8 @@ _DUMP_DIRS = {
     36: ('presco',    'Presco'),
     37: ('visa2000',  'Visa2000'),
     45: ('nexwatch',  'NexWatch'),
+    48: ('paxton',    'Paxton'),
+    49: ('paxton',    'Paxton'),
 }
 
 
@@ -761,6 +763,98 @@ def readNexWatch(listener=None, infos=None, save=True):
     return readCardIdAndRaw('lf nexwatch reader', typ=45, save=save)
 
 
+def readPaxton(listener=None, infos=None, save=True):
+    """Read a Paxton Net2 (Hitag2) tag and save two dump files.
+
+    Two pre-flight checks mirror the real-world iCopy boot behaviour where
+    the first lf search consistently shows only Hitag2, and Paxton is
+    confirmed on the subsequent authenticated read:
+
+      Pre-flight 1: lf search — must emit 'Valid Paxton ID found!' to
+                    confirm this is actually a Paxton card before proceeding.
+      Pre-flight 2: lf hitag read --ht2 -k BDF5E846 — authenticated block
+                    read that extracts the block table and Paxton hex ID.
+
+    Extracts blocks 4-7 (16 user data bytes, 32-char hex write payload).
+    Extracts the Paxton hex ID from "Paxton id... D | 0xH", padded to
+    10 hex chars (5 bytes, e.g. 0003c3f9b6).
+
+    data = padded Paxton ID (display only).
+    raw  = 32-char block 4-7 payload (write payload — passed to
+           write_paxton_blocks() via _RAW_CLONE_PAR_TYPES in write.py).
+
+    Saves two dump files on success:
+      1. Paxton dump (/mnt/upan/dump/paxton/) — line 1: 32-char block payload,
+         line 2: padded Paxton ID, line 3: uid=<hitag2 UID>
+      2. EM410x dump (/mnt/upan/dump/em410x/) — padded Paxton ID for direct
+         EM clone (downgrade attack path).
+    """
+    # Pre-flight 1: confirm Paxton ID present via lf search
+    ret = executor.startPM3Task('lf search', 30000)
+    if ret == -1 or not executor.hasKeyword('Valid Paxton ID found!'):
+        return createRetObj(None, None, -1)
+
+    # Pre-flight 2: authenticated block read
+    ret = executor.startPM3Task('lf hitag read --ht2 -k BDF5E846', 30000)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+
+    # Extract blocks 4-7 and concatenate into 32-char hex write payload
+    payload = ''
+    for blk in range(4, 8):
+        pattern = lfsearch.REGEX_HITAG2_BLOCK.format(b=blk)
+        m = re.search(pattern, content)
+        if not m:
+            return createRetObj(None, None, -1)
+        payload += m.group(1).replace(' ', '')
+
+    if len(payload) != 32:
+        return createRetObj(None, None, -1)
+
+    # Extract and pad Paxton hex ID (5 bytes / 10 hex chars) — display only
+    paxton_hex = executor.getContentFromRegexG(lfsearch.REGEX_PAXTON_HEX, 1)
+    paxton_id = paxton_hex.strip().zfill(10) if paxton_hex else ''
+
+    # Determine product family from block data:
+    #   Net2:    block 5, nibble 4 (payload[11]) == 'F'
+    #   Switch2: block 5, nibble 4 != 'F'  AND
+    #            block 7, nibble 4 (payload[27]) is even AND
+    #            block 7, nibble 5 (payload[28]) == '1'
+    #            Valid nib4/nib5 pairs: 01, 21, 41, 61, 81
+    is_net2 = payload[11].upper() == 'F'
+
+    if not is_net2:
+        nib4 = payload[27].upper()
+        nib5 = payload[28].upper()
+        is_switch2 = (nib5 == '1' and int(nib4, 16) % 2 == 0)
+        if not is_switch2:
+            return createRetObj(None, None, -1)
+        # Switch 2: save Paxton dump only — no EM410x secondary dump
+        if save:
+            hitag2_uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+            hitag2_uid = hitag2_uid.strip() if hitag2_uid else ''
+            _save_txt(49, paxton_id, payload, extras={'uid': hitag2_uid, 'type': 'switch2'})
+        result = createRetObj(paxton_id, payload, 1)
+        result['type'] = 49
+        return result
+
+    # Net2: save primary Paxton dump and secondary EM410x dump
+    if save:
+        hitag2_uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+        hitag2_uid = hitag2_uid.strip() if hitag2_uid else ''
+        _save_txt(48, paxton_id, payload, extras={'uid': hitag2_uid, 'type': 'net2'})
+        # Secondary EM410x dump — padded Paxton ID for direct EM clone
+        _save_txt(8, paxton_id, paxton_id)
+
+    # data = Paxton ID (display); raw = block payload (write)
+    result = createRetObj(paxton_id, payload, 1)
+    result['type'] = 48
+    return result
+
+
 READ = {
     8: readEM410X,
     9: readHID,
@@ -784,4 +878,6 @@ READ = {
     36: readPresco,
     37: readVisa2000,
     45: readNexWatch,
+    48: readPaxton,
+    49: readPaxton,
 }
