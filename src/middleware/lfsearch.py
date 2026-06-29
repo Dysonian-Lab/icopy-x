@@ -134,8 +134,19 @@ REGEX_PROX_ID_XSF = r'(XSF\(.*?\).*?:[xX0-9a-fA-F]+)'
 # `Hex|HEX|hex` alternates never emitted by iceman.  Matrix L988.
 REGEX_RAW = r'(?:Raw|raw)\s*:\s*([xX0-9a-fA-F ]+)'
 
-# ---------------------------------------------------------------------------
-# Internal regex patterns -- iceman-native shapes
+# Iceman cmdlfhitag.c:277 print_hitag2_paxton() emits (via lf sea Paxton probe):
+#   "Paxton id... <decimal> | 0x<hex>  ( <formfactor> )"
+# Capture the hex form (group 1) — used for cloning/downgrade work.
+# Decimal is omitted; the hex payload is what write operations consume.
+REGEX_PAXTON_HEX = r'Paxton id\.\.\.\s+\d+\s+\|\s+0x([0-9A-Fa-f]+)'
+
+# Iceman lf hitag read block table row (cmdlfhitag.c print_hitag2_configuration):
+#   "[=]  4/0x04 | B4 C2 7A C0 | ..z.  | RW  | User"
+# After _clean_pm3_output strips the [=] prefix, the line becomes:
+#   " 4/0x04 | B4 C2 7A C0 | ..z.  | RW  | User"
+# Used by readPaxton() to extract blocks 4-7 (16 user data bytes).
+# Format string: substitute block number for {b} before compiling.
+REGEX_HITAG2_BLOCK = r'\s+{b}/0x0{b}\s+\|\s+([0-9A-Fa-f]{{2}} [0-9A-Fa-f]{{2}} [0-9A-Fa-f]{{2}} [0-9A-Fa-f]{{2}})'
 # ---------------------------------------------------------------------------
 # Iceman AWID/Pyramid/Paradox/KERI emit `FC: %d` (cmdlfawid.c:248,
 # cmdlfpyramid.c:161, cmdlfparadox.c:224, cmdlfkeri.c:181); Securakey emits
@@ -705,11 +716,22 @@ def parser():
     # Paxton key (0xBDF5E846) and emits "Valid Paxton ID found!" followed by
     # "Chipset... Hitag 2". Must be checked before Check 22 so the Paxton
     # card is not swallowed by the generic Hitag 2 path.
+    # Captures the hex Paxton ID from "Paxton id... D | 0xH", left-pads to
+    # 10 hex chars (5 bytes) e.g. 3c3f9b6 -> 0003c3f9b6.
+    # Also captures the Hitag2 UID for secondary display.
     if executor.hasKeyword('Valid Paxton ID found!'):
         seaObj = {}
+        paxton_hex = executor.getContentFromRegexG(REGEX_PAXTON_HEX, 1)
+        padded = paxton_hex.strip().zfill(10) if paxton_hex else ''
+        # data = padded Paxton ID (display only — shown on scan card).
+        # raw  = '' — the 32-char block 4-7 write payload is NOT available
+        #        from lf sea; it requires a separate authenticated read via
+        #        lf hitag read --ht2 -k BDF5E846 (done by readPaxton()).
+        #        write.py sources raw from readPaxton() via bundle, not here.
+        seaObj['data'] = padded
+        seaObj['raw'] = ''
         uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
-        seaObj['data'] = uid.strip() if uid else ''
-        seaObj['raw'] = seaObj['data']
+        seaObj['uid'] = uid.strip() if uid else ''
         seaObj['type'] = tagtypes.PAXTON_NET2_ID
         seaObj['found'] = True
         return seaObj
