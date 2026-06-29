@@ -2666,6 +2666,7 @@ class ReadListActivity(BaseActivity):
         (45, 'NexWatch ID'),
         (23, 'T5577'),
         (24, 'EM4305'),
+        (48, 'Paxton Net2'),
     ]
 
     def __init__(self, bundle=None):
@@ -6857,6 +6858,7 @@ DUMP_DIRS = {
     'pac': '/mnt/upan/dump/pac/', 'paradox': '/mnt/upan/dump/paradox/',
     'presco': '/mnt/upan/dump/presco/', 'visa2000': '/mnt/upan/dump/visa2000/',
     'nexwatch': '/mnt/upan/dump/nexwatch/',
+    'paxton': '/mnt/upan/dump/paxton/',
 }
 
 # Fixed type order from original firmware (QEMU-verified, HANDOVER.md line 77).
@@ -6892,6 +6894,7 @@ DUMP_TYPE_ORDER = [
     ('Indala ID',          'indala'),     # 25
     ('iClass',             'iclass'),     # 26
     ('EM4X05 ID',          'em4x05'),     # 27
+    ('Paxton',              'paxton'),     # 28
 ]
 
 
@@ -8052,6 +8055,7 @@ class ReadFromHistoryActivity(BaseActivity):
         'fdx': 28, 'gallagher': 29, 'jablotron': 30, 'keri': 31,
         'nedap': 32, 'noralsy': 33, 'pac': 34, 'paradox': 35,
         'presco': 36, 'visa2000': 37, 'nexwatch': 45, 'hf14a': 44,
+        'paxton': 48,
     }
 
     # dump_type_key -> SIM_MAP index (for sim_for_info)
@@ -8064,6 +8068,10 @@ class ReadFromHistoryActivity(BaseActivity):
     # Types that use write_file_base (HF file-based writes)
     _WRITE_FILE_TYPES = {'mf1', 'mfu', 'iclass', 'felica', 'legic', 'hf14a', 'icode'}
     # Types that use write_lf_dump (raw T55xx restore)
+    # Note: 'paxton' removed — type 48 now dispatches through _LF_TYPES
+    # → lfwrite.write() → PAR_CLONE_MAP → write_paxton_blocks(), same as
+    # all other LF ID types. _write_id() sends the scan cache dict which
+    # carries raw = 32-char block payload read from dump file line 1.
     _WRITE_LF_DUMP_TYPES = {'t55xx', 'em4x05'}
 
     def __init__(self, bundle=None):
@@ -8270,7 +8278,7 @@ class ReadFromHistoryActivity(BaseActivity):
         elif dtk in ('em410x', 'hid', 'indala', 'awid', 'fdx', 'viking',
                       'keri', 'pyramid', 'paradox', 'jablotron', 'noralsy',
                       'nexwatch', 'securakey', 'pac', 'gproxii', 'nedap',
-                      'gallagher', 'visa2000', 'presco', 'ioprox'):
+                      'gallagher', 'visa2000', 'presco', 'ioprox', 'paxton'):
             # info['data'] is the filename-derived identity. For OLD dumps
             # (pre-v2) this is the only source of the display string, so it
             # serves as the backwards-compatible fallback below.
@@ -8313,6 +8321,16 @@ class ReadFromHistoryActivity(BaseActivity):
                 if '=' in _ln:
                     _k, _v = _ln.split('=', 1)
                     cache[_k.strip()] = _v.strip()
+
+            # Paxton: resolve correct numeric type from type= field in dump.
+            # type=net2 → 48 (Paxton Net2), type=switch2 → 49 (Paxton Switch2).
+            # Falls back to 48 for old dumps without this field.
+            if dtk == 'paxton':
+                _paxton_variant = cache.get('type', '')
+                if _paxton_variant == 'switch2':
+                    cache['type'] = 49
+                else:
+                    cache['type'] = 48
 
             # ---- Backwards compatibility for OLD dumps (no line 3+) ----
             # Old dumps store no per-field keys, so recover sim fields from
@@ -8406,7 +8424,10 @@ class ReadFromHistoryActivity(BaseActivity):
 
     def _write_lf_dump(self):
         # Bundle = {'file': path_with_extension}
-        bundle = {'file': self._file_path}
+        # Include type so WriteActivity can dispatch correctly even if
+        # the scan cache is cleared between activities.
+        type_num = self._TYPE_NUMBERS.get(self._dump_type_key, -1)
+        bundle = {'file': self._file_path, 'type': type_num}
         actstack.start_activity(WarningWriteActivity, bundle)
 
     # ------------------------------------------------------------------
