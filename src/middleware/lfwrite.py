@@ -356,8 +356,6 @@ PAR_CLONE_MAP = {
     28: write_fdx_par,
     31: write_keri,
     32: write_nedap,
-    48: write_paxton_blocks,
-    49: write_paxton_blocks,
 }
 
 
