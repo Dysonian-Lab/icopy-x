@@ -8068,10 +8068,12 @@ class ReadFromHistoryActivity(BaseActivity):
     # Types that use write_file_base (HF file-based writes)
     _WRITE_FILE_TYPES = {'mf1', 'mfu', 'iclass', 'felica', 'legic', 'hf14a', 'icode'}
     # Types that use write_lf_dump (raw T55xx restore)
-    # Note: 'paxton' removed — type 48 now dispatches through _LF_TYPES
-    # → lfwrite.write() → PAR_CLONE_MAP → write_paxton_blocks(), same as
-    # all other LF ID types. _write_id() sends the scan cache dict which
-    # carries raw = 32-char block payload read from dump file line 1.
+    # Note: 'paxton' removed — types 48/49 now dispatch through _LF_TYPES
+    # → lfwrite.write() → HITAG_WRITE_MAP → write_paxton_blocks(), which
+    # bypasses the T55xx check_detect and _inline_verify used by the other
+    # LF ID types (Paxton is Hitag2, not T55xx). _write_id() sends the scan
+    # cache dict which carries raw = 32-char block payload read from dump
+    # file line 1.
     _WRITE_LF_DUMP_TYPES = {'t55xx', 'em4x05'}
 
     def __init__(self, bundle=None):
