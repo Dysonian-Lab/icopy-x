@@ -2666,7 +2666,8 @@ class ReadListActivity(BaseActivity):
         (45, 'NexWatch ID'),
         (23, 'T5577'),
         (24, 'EM4305'),
-        (48, 'Paxton Net2'),
+        # Don't add tagtype 49 (switch2) to the readable types — 48 serves both perfectly fine
+        (48, 'Paxton Net2/Switch2'),
     ]
 
     def __init__(self, bundle=None):
