@@ -138,8 +138,8 @@ def _read_mfc(infos, listener):
         # Total read failure — no blocks readable
         return (-2, '')
 
-    eml_path = hfmfread.save_eml(infos, data_list)
     bin_path = hfmfread.save_bin(infos, data_list)
+    hfmfread.save_json(infos, data_list)
 
     if bin_path:
         return (1, bin_path)
@@ -210,7 +210,7 @@ def _read_felica(infos, listener):
 # Type dispatch table
 _MFC_TYPES = {0, 1, 25, 26, 41, 42, 43, 44}
 _UL_TYPES = {2, 3, 4, 5, 6, 7}
-_LF_TYPES = {8, 9, 10, 11, 12, 13, 14, 15, 16, 23, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 45}
+_LF_TYPES = {8, 9, 10, 11, 12, 13, 14, 15, 16, 23, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 45, 48, 49}
 _ICLASS_TYPES = {17, 18, 47}
 _ISO15693_TYPES = {19, 46}
 _LEGIC_TYPES = {20}

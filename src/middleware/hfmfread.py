@@ -224,8 +224,34 @@ def save_bin(infos, data_list):
     except Exception:
         return None
 
-def save_eml(infos, data_list):
-    """Save block data as .eml text file."""
+def save_json(infos, data_list):
+    """Save block data as iceman-compatible .json sidecar (mfc v2 schema).
+
+    Mirrors the JSON format produced by iceman's pm3_save_mf_dump
+
+        {
+          "Created": "proxmark3",
+          "FileType": "mfc v2",
+          "Card": { "UID": "...", "ATQA": "...", "SAK": "..." },
+          "blocks": { "0": "<32 hex>", ... },
+          "SectorKeys": {
+            "0": { "KeyA": "...", "KeyB": "...", "AccessConditions": "...",
+                   "AccessConditionsText": { "blockN": "...", "UserData": "..." } }
+          }
+        }
+
+    ATQA byte-order: scan cache holds big-endian display form (e.g. '0004');
+    JSON Card.ATQA uses little-endian / block-storage form (e.g. '0400').
+    endian() performs the swap in both directions.
+
+    SectorKeys are sourced from hfmfkeys.KEYS_MAP (populated during fchk /
+    key-recovery phase).  Trailer block bytes 6-9 provide AccessConditions.
+    Keys absent from KEYS_MAP fall back to FFFFFFFFFFFF.
+
+    Returns the .json path on success, None on failure.
+    """
+    import json as _json
+
     name = create_name_by_type(infos)
     dump_dir = appfiles.PATH_DUMP_M1 if appfiles else '/mnt/upan/dump/mf1/'
     try:
@@ -234,17 +260,72 @@ def save_eml(infos, data_list):
         pass
     n = 1
     while True:
-        path = os.path.join(dump_dir, '{}_{}.eml'.format(name, n))
+        path = os.path.join(dump_dir, '{}_{}.json'.format(name, n))
         if not os.path.exists(path):
             break
         n += 1
         if n > 999:
             break
+
+    # ── Card fields ──────────────────────────────────────────────────────────
+    uid = (infos.get('uid') or '').upper()
+    sak = (infos.get('sak') or '08').upper()
+    # scan cache ATQA is big-endian display form ('0004'); JSON uses LE ('0400')
+    atqa_cache = (infos.get('atqa') or '0004')
+    atqa_json = endian(atqa_cache)  # '0004' → '0400'
+
+    # ── blocks dict (string keys, 32-char uppercase hex values) ──────────────
+    blocks = {}
+    for i, block_hex in enumerate(data_list):
+        blocks[str(i)] = (block_hex or '00' * 16).upper()[:32]
+
+    # ── SectorKeys ───────────────────────────────────────────────────────────
+    typ = infos.get('type', 1)
+    size = sizeGuess(typ)
+    sc = mifare.getSectorCount(size) if mifare else 16
+    sector_keys = {}
+    for sector in range(sc):
+        key_a = (hfmfkeys.getKey4Map(sector, 'A') if hfmfkeys else None) or 'FFFFFFFFFFFF'
+        key_b = (hfmfkeys.getKey4Map(sector, 'B') if hfmfkeys else None) or 'FFFFFFFFFFFF'
+
+        # AccessConditions: bytes 6-9 of the trailer block (hex chars 12-19)
+        fb = mifare.sectorToBlock(sector) if mifare else sector * 4
+        bc = mifare.getBlockCountInSector(sector) if mifare else 4
+        trailer_idx = fb + bc - 1
+        trailer_hex = blocks.get(str(trailer_idx), '00' * 16)
+        access_cond = trailer_hex[12:20].upper()  # 4 bytes = 8 hex chars
+        user_data = trailer_hex[18:20].upper()     # byte 9 = UserData
+
+        # AccessConditionsText: label each data block and the trailer
+        act = {}
+        for offset in range(bc - 1):
+            blk = fb + offset
+            act['block{}'.format(blk)] = 'read AB; write AB; increment AB; decrement transfer restore AB'
+        act['block{}'.format(trailer_idx)] = 'write A by A; read/write ACCESS by A; read/write B by A'
+        act['UserData'] = user_data
+
+        sector_keys[str(sector)] = {
+            'KeyA': key_a.upper(),
+            'KeyB': key_b.upper(),
+            'AccessConditions': access_cond,
+            'AccessConditionsText': act,
+        }
+
+    doc = {
+        'Created': 'proxmark3',
+        'FileType': 'mfc v2',
+        'Card': {
+            'UID': uid,
+            'ATQA': atqa_json,
+            'SAK': sak,
+        },
+        'blocks': blocks,
+        'SectorKeys': sector_keys,
+    }
+
     try:
         with open(path, 'w') as f:
-            for block_hex in data_list:
-                f.write((block_hex or '00' * 16).upper() + '\n')
-        cacheFile(path)
+            _json.dump(doc, f, indent=2)
         return path
     except Exception:
         return None

@@ -567,6 +567,19 @@ _COMMAND_TRANSLATION_RULES = [] if not LEGACY_COMPAT else [
     # lf jablotron sim --cn X -> lf jablotron sim X
     (re.compile(r'^lf jablotron sim\s+--cn\s+(\S+)$'), r'lf jablotron sim \1'),
 
+    # lf keri sim --id X -> lf keri sim X
+    (re.compile(r'^lf keri sim\s+--id\s+(\S+)$'), r'lf keri sim \1'),
+
+    # lf pac sim --cn X -> lf pac sim X
+    (re.compile(r'^lf pac sim\s+--cn\s+(\S+)$'), r'lf pac sim \1'),
+
+    # lf noralsy sim --cn X --year Y -> lf noralsy sim X Y
+    # Emitter (activity_main.py SIM_MAP) always sends both --cn and --year,
+    # so this matches the two-field form; NIKOLA client wants positional
+    # `lf noralsy sim <card id> <year>` (device usage string).
+    (re.compile(r'^lf noralsy sim\s+--cn\s+(\S+)\s+--year\s+(\S+)$'),
+     r'lf noralsy sim \1 \2'),
+
     # lf nedap sim --st X --cc Y --id Z -> lf nedap sim s X c Y i Z
     (re.compile(r'^lf nedap sim\s+--st\s+(\S+)\s+--cc\s+(\S+)\s+--id\s+(\S+)$'),
      r'lf nedap sim s \1 c \2 i \3'),

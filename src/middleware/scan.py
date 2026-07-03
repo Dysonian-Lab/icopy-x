@@ -373,6 +373,69 @@ def scan_lfsea():
     except Exception:
         return createExecTimeout(1)
 
+def scan_hitag_paxton():
+    """Probe a Hitag2 tag with the Paxton key to check for a Paxton payload.
+
+    Called after scan_lfsea() returns type 38 (Hitag2). lf sea on first
+    iCopy boot consistently identifies Paxton cards as plain Hitag2 — this
+    authenticated read resolves the ambiguity.
+
+    Sends 'lf hitag read --ht2 -k BDF5E846'. If the output contains
+    'Paxton id...' the card carries a Paxton Net2 payload and the result
+    is upgraded to type 48 with the padded Paxton hex ID in 'data'.
+    raw stays '' — block payload is not stored at scan time; readPaxton()
+    populates it at read time.
+
+    Returns a result dict with progress=1 on Paxton confirmed.
+    On timeout, failure, or no Paxton ID found: createTagNoFound(1) so
+    the caller keeps the original Hitag2 result unchanged.
+    """
+    try:
+        import re as _re
+        import executor
+        import lfsearch
+        import tagtypes
+        ret = executor.startPM3Task('lf hitag read --ht2 -k BDF5E846', 30000)
+        if ret == -1:
+            return createTagNoFound(1)
+        if executor.hasKeyword('Paxton id...'):
+            paxton_hex = executor.getContentFromRegexG(lfsearch.REGEX_PAXTON_HEX, 1)
+            uid_raw = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+
+            # Determine Net2 vs Switch2 from block table already in output.
+            # All data is in CONTENT_OUT_IN__TXT_CACHE — no extra PM3 call needed.
+            #   Net2:    block 5, nibble 4 == 'F'
+            #   Switch2: block 5, nibble 4 != 'F'  AND
+            #            block 7, nibble 4 is even AND block 7, nibble 5 == '1'
+            tag_type = tagtypes.PAXTON_NET2_ID
+            content = executor.getPrintContent()
+            blk5_m = _re.search(lfsearch.REGEX_HITAG2_BLOCK.format(b=5), content)
+            blk7_m = _re.search(lfsearch.REGEX_HITAG2_BLOCK.format(b=7), content)
+            if blk5_m and blk7_m:
+                blk5 = blk5_m.group(1).replace(' ', '')
+                blk7 = blk7_m.group(1).replace(' ', '')
+                if len(blk5) == 8 and len(blk7) == 8:
+                    if blk5[3].upper() != 'F':
+                        nib4 = blk7[3].upper()
+                        nib5 = blk7[4].upper()
+                        if nib5 == '1' and int(nib4, 16) % 2 == 0:
+                            tag_type = tagtypes.PAXTON_SWITCH2_ID
+
+            info = {
+                'found': True,
+                'type': tag_type,
+                'data': paxton_hex.strip().zfill(10) if paxton_hex else '',
+                'raw': '',
+                'uid': uid_raw.strip() if uid_raw else '',
+                'progress': 1,
+                'return': tag_type,
+            }
+            return info
+        return createTagNoFound(1)
+    except Exception:
+        return createExecTimeout(1)
+
+
 def scan_t55xx():
     """Scan for T55xx tags.
 
@@ -552,7 +615,7 @@ def scanForType(listener, typ):
             tagtypes.FDXB_ID, tagtypes.GALLAGHER_ID, tagtypes.JABLOTRON_ID,
             tagtypes.KERI_ID, tagtypes.NEDAP_ID, tagtypes.NORALSY_ID,
             tagtypes.PAC_ID, tagtypes.PARADOX_ID, tagtypes.PRESCO_ID,
-            tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID,
+            tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID, tagtypes.HITAG2_ID,
         }
 
         result = None
@@ -576,8 +639,6 @@ def scanForType(listener, typ):
         elif typ == tagtypes.FELICA:
             result = scan_felica()
         elif typ == tagtypes.ISO14443B:
-            result = scan_hfsea()
-        elif typ == tagtypes.HITAG2_ID:
             result = scan_hfsea()
         else:
             result = scan_hfsea()
@@ -746,6 +807,16 @@ class Scanner:
                 self._call_progress_method(33)
                 r = scan_lfsea()
                 if r.get('found'):
+                    # Paxton upgrade: if lf sea returned Hitag2 (type 38) OR
+                    # Paxton Net2 (type 48), probe with the authenticated block
+                    # read to resolve Net2 vs Switch2.
+                    # On some firmware lf sea already emits 'Valid Paxton ID found!'
+                    # for all Paxton variants and lfsearch.parser() returns 48
+                    # directly — the type 38 gate is never reached in that case.
+                    if r.get('type') in (38, 48):  # HITAG2_ID or PAXTON_NET2_ID
+                        p = scan_hitag_paxton()
+                        if p.get('found'):
+                            r = p
                     result = r
                 elif not self._is_can_next(r):
                     result = r
@@ -839,7 +910,7 @@ class Scanner:
                 tagtypes.FDXB_ID, tagtypes.GALLAGHER_ID, tagtypes.JABLOTRON_ID,
                 tagtypes.KERI_ID, tagtypes.NEDAP_ID, tagtypes.NORALSY_ID,
                 tagtypes.PAC_ID, tagtypes.PARADOX_ID, tagtypes.PRESCO_ID,
-                tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID,
+                tagtypes.VISA2000_ID, tagtypes.NEXWATCH_ID, tagtypes.HITAG2_ID,
             }
 
             if typ in hf_14a_types:
@@ -891,10 +962,6 @@ class Scanner:
                 result = scan_felica()
 
             elif typ == tagtypes.ISO14443B:      # 22
-                self._call_progress_method(23)
-                result = scan_hfsea()
-
-            elif typ == tagtypes.HITAG2_ID:      # 38
                 self._call_progress_method(23)
                 result = scan_hfsea()
 

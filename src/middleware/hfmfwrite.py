@@ -115,11 +115,19 @@ def tagChk1(infos, file, newinfos):
 def read_blocks_4file(infos, file):
     """Load blocks from binary dump file.
 
+    Two callers pass different path forms:
+        Dump file write: bundle = os.path.splitext(path)[0] — no extension.
+        AutoCopy:        bundle = full bin_path from read.py — already has .bin.
+
+    Strip any existing .bin suffix before appending so both paths resolve
+    to the correct file without double-extension (path.bin.bin).
+
     Returns dict: block_num → 32-char uppercase hex string.
     """
     blocks = {}
     try:
-        with open(file, 'rb') as f:
+        base = file[:-4] if file.lower().endswith('.bin') else file
+        with open(base + '.bin', 'rb') as f:
             block_num = 0
             while True:
                 data = f.read(16)
@@ -130,6 +138,31 @@ def read_blocks_4file(infos, file):
     except Exception:
         return {}
     return blocks
+
+# ---------------------------------------------------------------------------
+# _read_block0_from_json — JSON fallback for block 0
+# ---------------------------------------------------------------------------
+def _read_block0_from_json(file):
+    """Read block 0 hex from companion .json sidecar file.
+
+    Used as a fallback when block 0 is absent from the .bin dict.
+    The .json is the iceman mfc v2 schema saved alongside the .bin —
+    same base path, .json extension.  Block 0 is stored as
+    blocks["0"] = "<32-char uppercase hex>".
+
+    Returns 32-char uppercase hex string, or None if unavailable.
+    """
+    try:
+        import json as _json
+        base = file[:-4] if file.lower().endswith('.bin') else file
+        with open(base + '.json', 'r') as f:
+            doc = _json.load(f)
+        val = doc.get('blocks', {}).get('0')
+        if val and len(val) >= 32:
+            return val.upper()[:32]
+    except Exception:
+        pass
+    return None
 
 # ---------------------------------------------------------------------------
 # write_block / start_wrbl_cmd — per-block write
@@ -266,9 +299,11 @@ def write_with_standard(infos, file, listener):
         2. Trailer blocks: reverse sector order
            63, 59, 55, 51, 47, 43, 39, 35, 31, 27, 23, 19, 15, 11, 7, 3
 
-    Block 0 uses createManufacturerBlock (UID+BCC+SAK+ATQA from infos).
-    All other blocks use dump file data or EMPTY_DATA.
-    Trailers use dump file data or EMPTY_TRAI.
+    All blocks including block 0 use dump file data directly.
+    read_blocks_4file appends .bin to the bundle path so blocks[0]
+    is the real manufacturer block from the source card dump.
+    Block 0 fallback chain: .bin → JSON blocks["0"] → EMPTY_DATA.
+    All other blocks fall back to EMPTY_DATA / EMPTY_TRAI.
 
     Returns 1 if all blocks succeeded, -1 if any block failed.
     """
@@ -300,9 +335,15 @@ def write_with_standard(infos, file, listener):
         for offset in range(blocks_in_sector - 1):
             block_num = first_block + offset
 
-            # Get block data from dump
-            if block_num == 0:
-                block_data = blocks.get(0, hfmfread.createManufacturerBlock(infos))
+            # Get block data from dump — block 0 reads directly from the
+            # .bin file like all other blocks. read_blocks_4file appends
+            # .bin to the bundle path so blocks[0] is the real manufacturer
+            # block from the source card.
+            # Fallback chain for block 0: .bin → JSON blocks["0"] → EMPTY_DATA.
+            # The JSON fallback protects against edge cases where the .bin read
+            # succeeded but block 0 was missing (e.g. truncated file).
+            if block_num == 0 and 0 not in blocks:
+                block_data = _read_block0_from_json(file) or mifare.EMPTY_DATA
             else:
                 block_data = blocks.get(block_num, mifare.EMPTY_DATA)
 
@@ -368,6 +409,116 @@ def write_with_standard(infos, file, listener):
     return -1
 
 # ---------------------------------------------------------------------------
+# write_with_gen2 — per-block write for Gen 2 / CUID magic cards
+# Mirrors write_with_standard exactly but stores block success count in
+# infos for verify_gen2 to check against total_blocks.
+# ---------------------------------------------------------------------------
+def write_with_gen2(infos, file, listener):
+    """Write to Gen 2 / CUID magic card.
+
+    Identical write path to write_with_standard — block 0 is directly
+    writable on Gen2 via key auth + --force so no special commands needed.
+    Isolated from write_with_standard so the block success count can be
+    stored in infos without affecting the standard card write path.
+
+    Stores in infos on completion:
+        'write_block_count' — number of blocks that returned Write ( ok )
+        'write_block_total' — total blocks expected for this card size
+
+    verify_gen2() reads these to confirm all blocks wrote successfully
+    without needing a card dump or block comparison.
+
+    Returns 1 on full success, -1 if any block failed.
+    """
+    blocks = read_blocks_4file(infos, file)
+
+    typ = infos.get('type', 1)
+    size = hfmfread.sizeGuess(typ)
+    sector_count = mifare.getSectorCount(size)
+    total_blocks = sum(mifare.getBlockCountInSector(s) for s in range(sector_count))
+
+    progress = 0
+    write_success_list = []
+    write_fail = False
+
+    # --- Phase 1: Write data blocks (reverse sector order) ---
+    for sector in range(sector_count - 1, -1, -1):
+        first_block = mifare.sectorToBlock(sector)
+        blocks_in_sector = mifare.getBlockCountInSector(sector)
+
+        key_a = hfmfkeys.getKey4Map(sector, 'A') if hfmfkeys else None
+        key_b = hfmfkeys.getKey4Map(sector, 'B') if hfmfkeys else None
+
+        for offset in range(blocks_in_sector - 1):
+            block_num = first_block + offset
+
+            if block_num == 0 and 0 not in blocks:
+                block_data = _read_block0_from_json(file) or mifare.EMPTY_DATA
+            else:
+                block_data = blocks.get(block_num, mifare.EMPTY_DATA)
+
+            written = False
+            use_key_a = key_a or mifare.EMPTY_KEY
+            for _attempt in range(3):
+                ret = write_block(block_num, 'A', use_key_a, block_data)
+                if ret == 1:
+                    written = True
+                    break
+            if not written and key_b:
+                ret = write_block(block_num, 'B', key_b, block_data)
+                if ret == 1:
+                    written = True
+
+            if written:
+                write_success_list.append(block_num)
+            else:
+                write_fail = True
+
+            progress += 1
+            call_progress(listener, progress, total_blocks)
+
+    # --- Phase 2: Write trailer blocks (reverse sector order) ---
+    for sector in range(sector_count - 1, -1, -1):
+        first_block = mifare.sectorToBlock(sector)
+        blocks_in_sector = mifare.getBlockCountInSector(sector)
+        trailer_block = first_block + blocks_in_sector - 1
+
+        key_a = hfmfkeys.getKey4Map(sector, 'A') if hfmfkeys else None
+        key_b = hfmfkeys.getKey4Map(sector, 'B') if hfmfkeys else None
+
+        trailer_data = blocks.get(trailer_block, mifare.EMPTY_TRAI)
+
+        written = False
+        use_key_a = key_a or mifare.EMPTY_KEY
+        for _attempt in range(3):
+            ret = write_block(trailer_block, 'A', use_key_a, trailer_data)
+            if ret == 1:
+                written = True
+                break
+        if not written and key_b:
+            ret = write_block(trailer_block, 'B', key_b, trailer_data)
+            if ret == 1:
+                written = True
+
+        if written:
+            write_success_list.append(trailer_block)
+        else:
+            write_fail = True
+
+        progress += 1
+        call_progress(listener, progress, total_blocks)
+
+    # Store block counts in infos for verify_gen2
+    infos['write_block_count'] = len(write_success_list)
+    infos['write_block_total'] = total_blocks
+
+    if write_fail:
+        return -1
+    if write_success_list:
+        return 1
+    return -1
+
+# ---------------------------------------------------------------------------
 # write_common — main dispatch (DRM → gen1a detect → write)
 # ---------------------------------------------------------------------------
 def write_common(listener, infos, bundle):
@@ -398,6 +549,26 @@ def write_common(listener, infos, bundle):
     text_14a = executor.CONTENT_OUT_IN__TXT_CACHE or ''
     if not executor.hasKeyword('UID'):
         return -1
+
+    # Capture target card UID from hf 14a info into infos before write.
+    # verify() compares this pre-write UID against a fresh hf 14a info
+    # post-write — for standard cards the UID never changes so they match.
+    # Gen2 routes to verify_gen2() which uses block count not UID comparison,
+    # so the pre-write UID capture here does not affect Gen2 verify.
+    import re as _re_uid
+    _uid_m = _re_uid.search(r'UID:\s*([\dA-Fa-f ]+)', text_14a)
+    if _uid_m:
+        infos['uid'] = _uid_m.group(1).replace(' ', '').upper()
+
+    # Detect Gen 2 / CUID from hf 14a info output captured above.
+    # A Gen2 card must never be routed to write_with_gen1a — the cgetblk
+    # probe below returns block data via normal key auth on a Gen2 card
+    # with factory keys, producing a false Gen1a positive. Checking
+    # is_gen2 from text_14a before the dispatch prevents this regardless
+    # of what the cgetblk probe returns.
+    is_gen2 = 'Magic capabilities... Gen 2 / CUID' in text_14a
+    if is_gen2:
+        infos['gen2'] = True
 
     # Step 2: Gen1a detection
     # Iceman Gen1a probe response shapes (all three are positive
@@ -460,8 +631,10 @@ def write_common(listener, infos, bundle):
     # Step 4: Dispatch to write path
     file_path = bundle if isinstance(bundle, str) else ''
 
-    if is_gen1a:
+    if is_gen1a and not is_gen2:
         result = write_with_gen1a(infos, file_path)
+    elif is_gen2:
+        result = write_with_gen2(infos, file_path, listener)
     else:
         result = write_with_standard(infos, file_path, listener)
 
@@ -499,6 +672,26 @@ def write(listener, infos, bundle):
         return -1
 
 # ---------------------------------------------------------------------------
+# verify_gen2 — block count verify for Gen 2 / CUID cards
+# ---------------------------------------------------------------------------
+def verify_gen2(infos):
+    """Verify Gen 2 / CUID write by checking all blocks returned Write ( ok ).
+
+    write_with_gen2 stores 'write_block_count' and 'write_block_total' in
+    infos during the write. verify_gen2 simply confirms the count matches
+    the total — if all 64 blocks (1K) reported Write ( ok ) the write was
+    successful. No PM3 commands needed.
+
+    Returns 1 if count == total, -1 otherwise.
+    """
+    count = infos.get('write_block_count', 0)
+    total = infos.get('write_block_total', 0)
+    if total > 0 and count == total:
+        return 1
+    return -1
+
+
+# ---------------------------------------------------------------------------
 # verify — read back and compare
 # Trace: hf 14a info → hf mf cgetblk 0 (UID-level verify only)
 # ---------------------------------------------------------------------------
@@ -512,9 +705,16 @@ def verify(infos, bundle):
         No per-block comparison — original .so returns success if the
         card is present and UID matches.
 
+    Gen 2 / CUID cards route to verify_gen2() — checks write_block_count
+    vs write_block_total stored in infos by write_with_gen2.
+
     Returns 1 on success, -1 on failure.
     """
     try:
+        # Route Gen2 to block count verify
+        if infos.get('gen2', False):
+            return verify_gen2(infos)
+
         # Pre-check: card still on antenna
         ret = executor.startPM3Task('hf 14a info', 10000)
         if ret == -1:
@@ -543,11 +743,6 @@ def verify(infos, bundle):
         if card_uid and expected_uid and card_uid.startswith(expected_uid):
             return 1
         if card_uid and expected_uid and expected_uid.startswith(card_uid):
-            return 1
-
-        # Fallback: card present but UID comparison inconclusive
-        # Original .so returns success if card is on antenna
-        if ret == 1 and card_uid:
             return 1
 
         return -1

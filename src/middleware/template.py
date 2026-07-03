@@ -165,7 +165,7 @@ def __drawFinalByData(data, parent):
         return
     entry = TYPE_TEMPLATE[typ]
     frequency = entry[0]
-    display_name = entry[1]
+    display_name = data.get('display_name') or entry[1]
     family = entry[2]
     __drawFinal(parent, family, frequency, display_name)
 
@@ -330,13 +330,60 @@ def __drawID(data, parent):
     display_line = None
 
     if data_val:
-        # FC,CN, XSF, and Country lines are already formatted — show directly
-        if (data_val.startswith('FC,CN:') or data_val.startswith('XSF(')
-                or data_val.startswith('Country:')):
+        # FC,CN: split into two lines FC: and CN: for readability
+        # XSF( rendered directly as before
+        if data_val.startswith('FC,CN:'):
+            # Format: 'FC,CN: 123,45678' -> FC: 123 / CN: 45678
+            rest = data_val[len('FC,CN:'):].strip()
+            parts = rest.split(',', 1)
+            fc_val = parts[0].strip() if len(parts) > 0 else ''
+            cn_val = parts[1].strip() if len(parts) > 1 else ''
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y,
+                text='FC: {}'.format(fc_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y + _DATA_LINE_H,
+                text='CN: {}'.format(cn_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            display_line = None  # already rendered, skip single-line path
+        elif data_val.startswith('XSF('):
             display_line = data_val
+        elif typ == 28:
+            # FDX-B: build Country: label from country key in cache
+            # data holds CCC-NNNNNN for verification — use country key
+            # for display to match live scan rendering
+            country = data.get('country', '')
+            display_line = 'Country: {}'.format(country) if country else 'UID: {}'.format(data_val)
         elif typ == 10:
             # Indala: prefix with 'RAW: '
             display_line = 'RAW: {}'.format(data_val)
+        elif typ == 33:
+            # Noralsy: data is 'CN-Year' — split into CN: and Year: lines
+            parts = data_val.split('-', 1)
+            cn_val  = parts[0].strip() if len(parts) > 0 else ''
+            yr_val  = parts[1].strip() if len(parts) > 1 else ''
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y,
+                text='CN: {}'.format(cn_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y + _DATA_LINE_H,
+                text='Year: {}'.format(yr_val),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+            display_line = None  # already rendered, skip single-line path
         else:
             # Standard ID: prefix with 'UID: '
             display_line = 'UID: {}'.format(data_val)
@@ -396,15 +443,8 @@ def __drawID(data, parent):
             anchor='nw',
             tags=_TAG_DATA,
         )
-    elif is_lf:
-        # Default chipset 'X' for LF tags
-        parent.create_text(
-            _LEFT_X, _DATA_START_Y + _DATA_LINE_H,
-            text='Chipset: X',
-            font=data_font,
-            anchor='nw',
-            tags=_TAG_DATA,
-        )
+    # Default 'Chipset: X' removed — provides no useful information
+    # EM4305 and T5577 chipsets are handled by their own draw functions
 
     # Additional data lines below chipset (if present)
     lines = data.get('lines')
@@ -796,6 +836,51 @@ def __drawTopaz(data, parent):
         __drawDataLines(parent, lines, base_y=y)
 
 
+
+def __drawPaxton(data, parent):
+    """Paxton renderer — handles both Net2 (type 48) and Switch2 (type 49).
+
+    Net2  (type 48):
+      line 1 (y=128): ID: <5-byte hex padded Paxton ID>  e.g. 0003c3f9b6
+      line 2 (y=151): UID: <Hitag2 internal UID>         e.g. A4B90915
+
+    Switch2 (type 49):
+      line 1 (y=128): UID: <Hitag2 internal UID>         e.g. A4B90915
+
+    data['data'] holds the 5-byte padded hex Paxton ID.
+    data['uid']  holds the Hitag2 internal UID from lf search.
+    """
+    __drawFinalByData(data, parent)
+    if data is None:
+        return
+
+    data_font = resources.get_font_force_en(13)
+    typ = data.get('type', 48)
+    is_switch2 = (typ == 49)
+
+    if not is_switch2:
+        paxton_id = data.get('data', '')
+        if paxton_id:
+            parent.create_text(
+                _LEFT_X, _DATA_START_Y,
+                text='ID: {}'.format(paxton_id),
+                font=data_font,
+                anchor='nw',
+                tags=_TAG_DATA,
+            )
+
+    uid = data.get('uid', '')
+    if uid:
+        uid_y = _DATA_START_Y if is_switch2 else _DATA_START_Y + _DATA_LINE_H
+        parent.create_text(
+            _LEFT_X, uid_y,
+            text='UID: {}'.format(uid),
+            font=data_font,
+            anchor='nw',
+            tags=_TAG_DATA,
+        )
+
+
 # ---------------------------------------------------------------------------
 # TYPE_TEMPLATE — tag type ID -> (frequency, display_name, family, draw_func)
 # Complete 48 entries from spec section 2, cross-referenced with
@@ -850,6 +935,8 @@ TYPE_TEMPLATE = {
     45: ('125KHZ',   'NexWatch ID',          'NexWatch',     __drawID),
     46: ('13.56MHZ', 'ISO15693 ST SA',       'ISO15693',     __drawID),
     47: ('13.56MHZ', 'iCLASS SE',           'iCLASS',       __draw_iclass),
+    48: ('125KHZ',   'Paxton Net2',          'PAXTON',       __drawPaxton),
+    49: ('125KHZ',   'Paxton Switch2',       'PAXTON',       __drawPaxton),
 }
 
 

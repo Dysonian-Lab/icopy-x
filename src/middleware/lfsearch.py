@@ -82,6 +82,19 @@ COUNT = 0
 # Matrix L980; source_strings.md "lf fdxb" sections.
 REGEX_ANIMAL = r'Animal ID\.+\s+([0-9\-]+)'
 
+# Iceman KERI demodKeri @ cmdlfkeri.c:176 emits:
+#   "KERI - Internal ID: %u, Raw: %08X%08X"
+# Internal ID is decimal (%u). Not captured by REGEX_CARD_ID (which matches
+# Card/ID/UID prefixes) because "Internal ID:" has a qualifying prefix.
+REGEX_KERI_ID = r'Internal ID:\s+(\d+)'
+
+# Iceman demodNoralsy @ cmdlfnoralsy.c:106 emits:
+#   "Noralsy - Card: %u, Year: %u, Raw: %08X%08X%08X"
+# Dedicated regexes to capture CN and Year independently rather than
+# relying on the generic REGEX_CARD_ID which cannot distinguish Year.
+REGEX_NORALSY_CN   = r'Noralsy\s*-\s*Card:\s*(\d+)'
+REGEX_NORALSY_YEAR = r'Noralsy\s*-\s*Card:\s*\d+,\s*Year:\s*(\d+)'
+
 # Iceman per-tag demod labels: Viking "Card <hex>" (cmdlfviking.c:57, no colon),
 # Jablotron/Noralsy/Paradox "Card: <u>" or "ID: <hex>" (cmdlfjablotron.c:98,
 # cmdlfparadox.c:224). Tolerant to both `Card `/`Card:` within iceman native forms.
@@ -121,14 +134,28 @@ REGEX_PROX_ID_XSF = r'(XSF\(.*?\).*?:[xX0-9a-fA-F]+)'
 # `Hex|HEX|hex` alternates never emitted by iceman.  Matrix L988.
 REGEX_RAW = r'(?:Raw|raw)\s*:\s*([xX0-9a-fA-F ]+)'
 
-# ---------------------------------------------------------------------------
-# Internal regex patterns -- iceman-native shapes
+# Iceman cmdlfhitag.c:277 print_hitag2_paxton() emits (via lf sea Paxton probe):
+#   "Paxton id... <decimal> | 0x<hex>  ( <formfactor> )"
+# Capture the hex form (group 1) — used for cloning/downgrade work.
+# Decimal is omitted; the hex payload is what write operations consume.
+REGEX_PAXTON_HEX = r'Paxton id\.\.\.\s+\d+\s+\|\s+0x([0-9A-Fa-f]+)'
+
+# Iceman lf hitag read block table row (cmdlfhitag.c print_hitag2_configuration):
+#   "[=]  4/0x04 | B4 C2 7A C0 | ..z.  | RW  | User"
+# After _clean_pm3_output strips the [=] prefix, the line becomes:
+#   " 4/0x04 | B4 C2 7A C0 | ..z.  | RW  | User"
+# Used by readPaxton() to extract blocks 4-7 (16 user data bytes).
+# Format string: substitute block number for {b} before compiling.
+REGEX_HITAG2_BLOCK = r'\s+{b}/0x0{b}\s+\|\s+([0-9A-Fa-f]{{2}} [0-9A-Fa-f]{{2}} [0-9A-Fa-f]{{2}} [0-9A-Fa-f]{{2}})'
 # ---------------------------------------------------------------------------
 # Iceman AWID/Pyramid/Paradox/KERI emit `FC: %d` (cmdlfawid.c:248,
 # cmdlfpyramid.c:161, cmdlfparadox.c:224, cmdlfkeri.c:181); Securakey emits
 # `FC: 0x%X` (cmdlfsecurakey.c:113). Colon is uniform post-iceman. Drop
 # `:*` tolerance. Matrix L981-982.
-_RE_FC = r'FC:\s+([xX0-9a-fA-F]+)'
+# Gallagher (cmdlfgallagher.c:88) emits `Facility: %u` not `FC: %u`;
+# the non-capturing alternate `(?:FC|Facility)` covers both without
+# affecting any other tag's match — all other tags still emit `FC:`.
+_RE_FC = r'(?:FC|Facility):\s+([xX0-9a-fA-F]+)'
 
 # Iceman per-tag demod uses: `Card: %u` (Jablotron/Noralsy/Paradox/AWID
 # cmdlfjablotron.c:98, cmdlfnoralsy.c:106, cmdlfparadox.c:224, cmdlfawid.c:248),
@@ -483,7 +510,17 @@ def parser():
             m = re.match(r'XSF\(\s*([0-9A-Fa-f]+)\s*\)\s*([0-9A-Fa-f]+)\s*:\s*([0-9]+)', xsf)
             if m:
                 seaObj['vn'] = m.group(1)
-                seaObj['fc'] = m.group(2)
+                # IOProx shows FC in HEX in the XSF string (cmdlfio.c:156
+                # "%02x") but `lf io sim --fc` expects DECIMAL
+                # (cmdlfio.c:222 "<dec>"). Store the decimal conversion as
+                # the sim field so scan→simulate builds a correct command,
+                # while data (display) keeps the hex XSF string. This matches
+                # the IOProx dump path (readProxIO in lfread.py) exactly, so
+                # sim-from-scan and sim-from-dump are consistent.
+                try:
+                    seaObj['fc'] = str(int(m.group(2), 16))
+                except ValueError:
+                    seaObj['fc'] = m.group(2)
                 seaObj['cn'] = m.group(3)
         else:
             seaObj['data'] = None
@@ -585,7 +622,13 @@ def parser():
     # Check 14: KERI
     if executor.hasKeyword('Valid KERI ID'):
         seaObj = {}
-        setUID2FCCN(seaObj)
+        # KERI is Internal-ID-native: scan/read/dump views should all show
+        # the decimal Internal ID consistently. Capture it into data
+        # (instead of setUID2FCCN's 'FC,CN: x,y' string) so the displayed
+        # identity matches across every view, and so data aligns with what
+        # write_keri / 'lf keri sim --id' consume (the Internal ID).
+        internal_id = executor.getContentFromRegexG(REGEX_KERI_ID, 1)
+        seaObj['data'] = internal_id.strip() if internal_id else ''
         setRAW(seaObj)
         seaObj['type'] = tagtypes.KERI_ID
         seaObj['found'] = True
@@ -612,8 +655,14 @@ def parser():
     # Check 17: NexWatch
     if executor.hasKeyword('Valid NexWatch ID'):
         seaObj = {}
-        setUID(seaObj)
         setRAW(seaObj)
+        # NexWatch's iceman output has no Card/ID/UID label that
+        # REGEX_CARD_ID can match (it emits lowercase "raw id" / "88bit id"),
+        # so setUID() produces a stray partial match. Use the full raw hex
+        # as the display identity instead, so scan/read view matches the
+        # dump view (which shows the Raw: line). NexWatch clones from raw
+        # (RAW_CLONE_MAP), so data=raw is also write-consistent.
+        seaObj['data'] = seaObj.get('raw', '')
         seaObj['type'] = tagtypes.NEXWATCH_ID
         seaObj['found'] = True
         return seaObj
@@ -639,7 +688,16 @@ def parser():
     # Check 20: Noralsy
     if executor.hasKeyword('Valid Noralsy ID'):
         seaObj = {}
-        setUID(seaObj)
+        cn   = executor.getContentFromRegexG(REGEX_NORALSY_CN, 1)
+        year = executor.getContentFromRegexG(REGEX_NORALSY_YEAR, 1)
+        if cn:
+            seaObj['cn'] = cn
+        if cn and year:
+            seaObj['data'] = '%s-%s' % (cn, year)  # __drawID renders "UID: CN-Year"
+        elif cn:
+            seaObj['data'] = cn
+        if year:
+            seaObj['year'] = year
         setRAW(seaObj)
         seaObj['type'] = tagtypes.NORALSY_ID
         seaObj['found'] = True
@@ -653,10 +711,45 @@ def parser():
         seaObj['found'] = True
         return seaObj
 
-    # Check 22: Hitag
-    if executor.hasKeyword('Valid Hitag'):
+    # Check 21b: Paxton Net2
+    # lf sea on firmware with Paxton support probes Hitag2 with the default
+    # Paxton key (0xBDF5E846) and emits "Valid Paxton ID found!" followed by
+    # "Chipset... Hitag 2". Must be checked before Check 22 so the Paxton
+    # card is not swallowed by the generic Hitag 2 path.
+    # Captures the hex Paxton ID from "Paxton id... D | 0xH", left-pads to
+    # 10 hex chars (5 bytes) e.g. 3c3f9b6 -> 0003c3f9b6.
+    # Also captures the Hitag2 UID for secondary display.
+    if executor.hasKeyword('Valid Paxton ID found!'):
         seaObj = {}
-        setUID(seaObj)
+        paxton_hex = executor.getContentFromRegexG(REGEX_PAXTON_HEX, 1)
+        padded = paxton_hex.strip().zfill(10) if paxton_hex else ''
+        # data = padded Paxton ID (display only — shown on scan card).
+        # raw  = '' — the 32-char block 4-7 write payload is NOT available
+        #        from lf sea; it requires a separate authenticated read via
+        #        lf hitag read --ht2 -k BDF5E846 (done by readPaxton()).
+        #        write.py sources raw from readPaxton() via bundle, not here.
+        seaObj['data'] = padded
+        seaObj['raw'] = ''
+        uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+        seaObj['uid'] = uid.strip() if uid else ''
+        seaObj['type'] = tagtypes.PAXTON_NET2_ID
+        seaObj['found'] = True
+        return seaObj
+
+    # Check 22: Hitag 2
+    # Iceman lf search emits "Chipset... Hitag 2" (via the auth LF special-cases
+    # probe) rather than the legacy "Valid Hitag" keyword which no longer exists
+    # in iceman. Confirmed from terminal output: UID....... <8hex> (7 dots) +
+    # TYPE...... PCF 7936 + Chipset... Hitag 2. REGEX_CARD_ID does not match
+    # the dotted UID label so a dedicated regex captures the UID.
+    # Gated on absence of "Valid Paxton ID found!" because Paxton output
+    # includes "Chipset... Hitag 2" — Check 21b handles that case first,
+    # but the gate here prevents false Hitag2 matches if check order ever shifts.
+    if executor.hasKeyword('Chipset... Hitag 2') and not executor.hasKeyword('Valid Paxton ID found!'):
+        seaObj = {}
+        uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+        seaObj['data'] = uid.strip() if uid else ''
+        seaObj['raw'] = seaObj['data']
         seaObj['type'] = tagtypes.HITAG2_ID
         seaObj['found'] = True
         return seaObj

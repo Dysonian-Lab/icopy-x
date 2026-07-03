@@ -101,7 +101,9 @@ VERIFY_FAIL = -10
 def verify_t55xx(file):
     """Verify a T55xx tag against a dump file.
 
-    Detects tag, reads blocks as text, compares with file.
+    Detects tag, reads blocks from card via dumpT55XX_Text, reads expected
+    blocks from .bin dump file in binary mode (same approach as
+    write_dump_t55xx), compares block by block.
     """
     if lft55xx is None:
         return VERIFY_FAIL
@@ -120,15 +122,41 @@ def verify_t55xx(file):
         if not dump_text:
             return VERIFY_FAIL
 
-        try:
-            with open(file, 'r') as f:
-                file_text = f.read()
-        except Exception:
+        # Parse block values from card — same regex as write_dump_t55xx
+        import re as _re
+        read_blocks = _re.findall(r'^\s*\d+\s*\|\s*([A-Fa-f0-9]{8})\s*\|',
+                                  dump_text, _re.MULTILINE)
+        if not read_blocks:
             return VERIFY_FAIL
 
-        if dump_text.strip() == file_text.strip():
-            return VERIFY_OK
-        return VERIFY_FAIL
+        # Read expected blocks from .bin file — exactly as write_dump_t55xx
+        expected_blocks = []
+        try:
+            paths = [file]
+            if not file.endswith('.bin'):
+                paths.append(file + '.bin')
+            for fpath in paths:
+                try:
+                    with open(fpath, 'rb') as f:
+                        raw = f.read()
+                    for i in range(0, len(raw), 4):
+                        block_hex = raw[i:i + 4].hex().upper()
+                        expected_blocks.append(block_hex)
+                    break
+                except FileNotFoundError:
+                    continue
+        except Exception:
+            pass
+
+        if not expected_blocks:
+            return VERIFY_FAIL
+
+        # Compare blocks 1+ (skip block 0 config) — same as write_dump_t55xx
+        for i in range(1, min(len(expected_blocks), len(read_blocks))):
+            if read_blocks[i].upper() != expected_blocks[i].upper():
+                return VERIFY_FAIL
+
+        return VERIFY_OK
 
     except Exception:
         return VERIFY_FAIL
@@ -227,6 +255,37 @@ def verify(typ, uid_par, raw_par):
     if typ == getattr(tagtypes, 'EM4305_ID', 24):
         return verify_em4x05(raw_par)
 
+    # Paxton Net2 (48) / Switch2 (49): strict block 4-7 payload verify.
+    # No ID compare, no tag-presence fallback. Pass ONLY if a fresh
+    # authenticated read returns blocks 4-7 whose concatenation exactly
+    # matches the expected 32-char payload (raw_par):
+    #   dump-file write : raw_par = dump line 1 (block 4-7 payload)
+    #   autocopy        : raw_par = first-scanned card's block 4-7 payload
+    # readPaxton(save=False) runs `lf search` + `lf hitag read --ht2` and
+    # concatenates blocks 4-7 into its `raw` field — the fresh read-back.
+    if typ in (48, 49):
+        raw_e = str(raw_par).upper() if raw_par else ''
+        if not raw_e:
+            return VERIFY_FAIL
+        try:
+            import lfread as _lfread
+        except ImportError:
+            try:
+                from . import lfread as _lfread
+            except ImportError:
+                return VERIFY_FAIL
+        read_fn = _lfread.READ.get(typ) if hasattr(_lfread, 'READ') else None
+        if read_fn is None:
+            return VERIFY_FAIL
+        try:
+            rr = read_fn(save=False)
+        except Exception:
+            return VERIFY_FAIL
+        if not isinstance(rr, dict) or rr.get('return', -1) != 1:
+            return VERIFY_FAIL
+        raw_hex = str(rr.get('raw', '') or '').upper()
+        return VERIFY_OK if (raw_hex and raw_e == raw_hex) else VERIFY_FAIL
+
     # Step 1: scan_lfsea — check tag presence
     try:
         import scan as _scan
@@ -268,7 +327,7 @@ def verify(typ, uid_par, raw_par):
         read_fn = _lfread.READ.get(typ)
         if read_fn is not None:
             try:
-                read_result = read_fn()
+                read_result = read_fn(save=False)
                 if isinstance(read_result, dict) and read_result.get('return', -1) == 1:
                     found_data = read_result.get('data', '') or ''
                     found_raw = read_result.get('raw', '') or ''

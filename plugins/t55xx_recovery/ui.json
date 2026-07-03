@@ -1,0 +1,105 @@
+{
+    "plugin": true,
+    "name": "T55xx Recovery",
+    "version": "1.0.0",
+    "initial_state": "warning",
+    "states": {
+        "warning": {
+            "screen": {
+                "title": "T55xx Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "This recovers a", "size": "medium"},
+                        {"text": "softbricked T55xx tag", "size": "medium"},
+                        {"text": ""},
+                        {"text": "Place tag on reader", "size": "medium"},
+                        {"text": "then press OK", "size": "medium"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Start"},
+                "keys": {
+                    "OK": "set_state:recovering",
+                    "M2": "set_state:recovering",
+                    "M1": "finish"
+                }
+            }
+        },
+        "recovering": {
+            "on_enter": "run:do_recover",
+            "screen": {
+                "title": "T55xx Recovery",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {"left": null, "right": null}
+            },
+            "transitions": {
+                "on_result.status==done": "done",
+                "on_result.status==failed": "failed",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "done": {
+            "screen": {
+                "title": "T55xx Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "{result_msg}", "size": "medium"},
+                        {"text": ""},
+                        {"text": "Press OK to retry", "size": "medium"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Again"},
+                "keys": {
+                    "OK": "set_state:warning",
+                    "M2": "set_state:warning",
+                    "M1": "finish"
+                }
+            }
+        },
+        "failed": {
+            "screen": {
+                "title": "T55xx Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "{result_msg}", "size": "medium"},
+                        {"text": ""},
+                        {"text": "Press OK to retry", "size": "medium"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Again"},
+                "keys": {
+                    "OK": "set_state:warning",
+                    "M2": "set_state:warning",
+                    "M1": "finish"
+                }
+            }
+        },
+        "error": {
+            "screen": {
+                "title": "T55xx Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "{error_msg}", "size": "medium"},
+                        {"text": ""},
+                        {"text": "Press OK to retry", "size": "medium"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Again"},
+                "keys": {
+                    "OK": "set_state:warning",
+                    "M2": "set_state:warning",
+                    "M1": "finish"
+                }
+            }
+        }
+    }
+}

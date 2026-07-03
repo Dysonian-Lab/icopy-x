@@ -2666,6 +2666,8 @@ class ReadListActivity(BaseActivity):
         (45, 'NexWatch ID'),
         (23, 'T5577'),
         (24, 'EM4305'),
+        # Don't add tagtype 49 (switch2) to the readable types — 48 serves both perfectly fine
+        (48, 'Paxton Net2/Switch2'),
     ]
 
     def __init__(self, bundle=None):
@@ -5949,10 +5951,34 @@ SIM_MAP = [
     ('G-Prox II ID',  13, 'LF', 'lf_gporx',  'fccn',    'lf gproxii sim --xor 0 --fmt {} --fc {} --cn {}'),
     ('Viking ID',     15, 'LF', 'single_4b', 'uid',     'lf viking sim --cn {}'),
     ('Pyramid ID',    16, 'LF', 'lf_pyramid','pyramid', 'lf pyramid sim --fc {} --cn {}'),
-    ('Jablotron ID',  30, 'LF', 'lf_jab',    'jabdat',  'lf jablotron sim --cn {}'),
+    # Jablotron: 'fullcode' (the 40-bit rawid, line 3 of new dumps / derived
+    # from raw[4:14] for old dumps & live scans -- see _showSimUi and
+    # lfread.readJablotron) is what 'lf jablotron sim --cn' expects. This is
+    # distinct from the 'Card:' display id (cache['data']), which is a
+    # different BCD-style transform unsuitable for --cn.
+    ('Jablotron ID',  30, 'LF', 'lf_jab',    'fullcode', 'lf jablotron sim --cn {}'),
+    ('KERI ID',       31, 'LF', 'lf_keri',   'data',    'lf keri sim --id {}'),
+    # NOTE: PAC sim on PAC Door reader works and to flipper zero works but cannot get RDV4 to detect,
+    # iCopy > Flipper Zero Works and iCopy > PAC Door Reader but iCopy > RDV4 could not get to work.
+    # iCopy > PAC door reader can be finky but tested and working.
+    ('PAC/Stanley ID',34, 'LF', 'lf_pac',    'data',    'lf pac sim --cn {}'),
     ('Nedap ID',      32, 'LF', 'lf_nedap',  'nedap',   'lf nedap sim --st {} --cc {} --id {}'),
     ('FDX-B Animal',  28, 'LF', 'lf_fdx_a',  'fdx',     'lf fdxb sim --country {} --national {} --animal'),
     ('FDX-B Data',    28, 'LF', 'lf_fdx_d',  'fdx',     'lf fdxb sim --country {} --national {} --extended {}'),
+    # NOTE: Noralsy sim works iCopy > Flipper Zero but RDV4 cannot detect.
+    ('Noralsy ID',    33, 'LF', 'lf_noralsy', 'cn',     'lf noralsy sim --cn {} --year {}'),
+    # NOTE: Gallagher sim is UNCONFIRMED. cmdlfgallagher.c CmdGallagherSim
+    # accepts --raw <hex> (12 bytes/24 hex chars), and readGALLAGHER()
+    # (lfread.py) saves that exact payload as dump line 1 -> cache['raw'],
+    # so prepop is correct -- but a simulating RDV4 wasn't detected by
+    # iCopy or Flipper, and iCopy sim wasn't detected by Flipper or RDV4
+    # either. Likely a firmware-level Gallagher sim issue, not iCopy-side,
+    # but treat as unverified until a real-world detection succeeds.
+    # DISABLED for no-flash: firmware reports `lf gallagher sim` as
+    # "to be implemented" (PC-Mode), so the sim is a no-op. Commented out
+    # to remove it from all sim paths (menu list, scan->sim, dump->sim);
+    # restore this line verbatim between the flash and no-flash version or leave disable it was unconfirmed anywho.
+    # ('Gallagher ID',  29, 'LF', 'lf_gallagher', 'raw',  'lf gallagher sim --raw {}'),
 ]
 
 # QEMU-verified defaults from real .so binary (sim_common.sh lines 203-210).
@@ -5975,22 +6001,43 @@ SIM_FIELDS = {
                   ('FC:',  '2001',    'dec', 9999),      # 4 digits max 9999
                   ('CN:',  '13371337','dec', 99999999)],  # 8 digits, .so passes raw (user confirmed)
     'lf_io':     [('Version:', '01', 'hex', 2),
-                  ('FC:',  'FF',    'hex', 2),
+                  ('FC:',  '255',   'dec', 255),           # 3 digits, decimal (cmdlfio.c:222 --fc <dec>)
                   ('CN:',  '65535', 'dec', 65536)],        # 5 digits, original toast: "CN greater than 65536"
     'lf_gporx':  [('Format:', '26', 'dec', 99),          # 2 digits max 99
                   ('FC:',  '255',  'dec', 999),           # 3 digits, original passes FC=346 (no validation catch)
                   ('CN:',  '65535','dec', 65535)],         # 5 digits, 0xFFFF chipset max
     'lf_pyramid':[('FC:',  '255',  'dec', 255),           # 3 digits, original toast: "FC greater than 255"
                   ('CN:',  '65536','dec', 99999)],         # 5 digits max 99999
-    'lf_jab':    [('ID:',  '1C6AEB', 'hex', 6)],
+    # FullCode: the 40-bit rawid (always exactly 10 hex chars / even-length,
+    # sliced from raw[4:14]) -- the value 'lf jablotron sim --cn' needs.
+    # Default is a real example fullcode (from a clone test).
+    'lf_jab':    [('FullCode:', '01B66901B6', 'hex', 10)],
+    # KERI Internal ID: cmdlfkeri.c:176 emits `Internal ID: %u` (decimal).
+    # lf keri sim --id accepts decimal internal ID directly.
+    # Max usable value: 0x7FFFFFFF = 2147483647 (MSB reserved by firmware).
+    'lf_keri':   [('ID:',  '112233', 'dec', 2147483647)],
+    # PAC/Stanley card ID: cmdlfpac.c:171 emits `Card: <hex>` (8 hex chars = 4 bytes).
+    # lf pac sim --id accepts the card ID hex directly (same shape as card ID from reader).
+    'lf_pac':    [('ID:',  'AABA517B', 'hex', 8)],
     'lf_nedap':  [('Subtype:', '15', 'dec', 15),          # FB proof: max 15, decimal display
-                  ('CN:',  '999',   'dec', 999),          # 3 digits max 999 (doc: 65535)
+                  ('CC:',  '999',   'dec', 999),          # 3 digits max 999 (doc: 65535)
                   ('ID:',  '99999', 'dec', 65535)],        # 5 digits, doc max 65535
     'lf_fdx_a':  [('Country:', '999', 'dec', 999),        # 10-bit ISO 11784, max 999 usable
                   ('NC:',  '112233445566', 'dec', 274877906943)],  # 38-bit ISO 11784 national ID
     'lf_fdx_d':  [('Country:', '999', 'dec', 999),        # 10-bit ISO 11784, max 999 usable
                   ('NC:',  '112233445566', 'dec', 274877906943),  # 38-bit ISO 11784 national ID
                   ('Animal Bit:', '0', 'dec', 1)],         # 1-bit animal application indicator
+    # Noralsy CN: BCD-encoded decimal, max 7 digits (getnoralsyBits DEC2BCD limit).
+    # Noralsy Year: 2-digit BCD stored in 8 bits; iceman adds 1900/2000 offset
+    # (year > 60 ? 1900 : 2000), giving usable range 1961-2059. UI bounded to
+    # 2099 for simplicity — values beyond 2059 will fold back via iceman offset.
+    'lf_noralsy': [('CN:',   '1234567', 'dec', 9999999),
+                   ('Year:', '2000',    'dec', 2099)],
+    # Gallagher raw payload: cmdlfgallagher.c CmdGallagherSim '--raw' takes the
+    # 12-byte (96-bit) block payload as 24 hex chars. Default is the example
+    # value from the command's own help text (CmdGallagherSim usage string).
+    # See SIM_MAP note above -- sim itself is unconfirmed/unverified.
+    'lf_gallagher': [('Raw:', '0FFD5461A9DA1346B2D1AC32', 'hex', 24)],
 }
 
 # Initialize _SIMULATE_TYPES from SIM_MAP (audit finding 3)
@@ -6172,10 +6219,17 @@ class SimulationActivity(BaseActivity):
             'ID:':  ('data', 'raw'),
             'FC:':  ('fc',),
             'CN:':  ('cn',),
+            # Nedap customer code (--cc). 'cc' = new dumps (line 3 cc=),
+            # 'code' = live scans (lfsearch NEDAP check sets seaObj['code']),
+            # 'cn' = old dumps (pre-change, line 3 cn=). CN: above is
+            # unchanged and still used as-is by Noralsy etc.
+            'CC:':  ('cc', 'code', 'cn'),
+            'Subtype:': ('subtype',),
             'Format:': ('len',),
             'Country:': ('country',),
             'NC:':  ('nc',),
             'Version:': ('vn',),   # IO Prox XSF version field
+            'Year:': ('year',),    # Noralsy year field
         }
         # Per-tag override key (field 0 only): SIM_MAP entry[4] names the
         # cache field this tag's prepop should pull from.  Necessary for
@@ -6196,6 +6250,16 @@ class SimulationActivity(BaseActivity):
             if (i == 0 and sim_override_key
                     and isinstance(self._defbundle, dict)):
                 v = self._defbundle.get(sim_override_key)
+                if v in (None, '', 'X') and sim_override_key == 'fullcode':
+                    # Jablotron: 'fullcode' (dump line 3) is absent for old
+                    # dumps and live scans. Derive it from the 16-hex-char
+                    # raw demod buffer: [4:14] is the 40-bit fullcode/rawid
+                    # (4-char FFFF preamble + 10-char fullcode + 2-char
+                    # checksum) -- exactly what 'lf jablotron sim --cn'
+                    # expects. See lfread.readJablotron.
+                    _raw = self._defbundle.get('raw', '')
+                    if _raw and len(_raw) == 16:
+                        v = _raw[4:14]
                 if v not in (None, '', 'X'):
                     val = v
                     populated = True
@@ -6795,6 +6859,7 @@ DUMP_DIRS = {
     'pac': '/mnt/upan/dump/pac/', 'paradox': '/mnt/upan/dump/paradox/',
     'presco': '/mnt/upan/dump/presco/', 'visa2000': '/mnt/upan/dump/visa2000/',
     'nexwatch': '/mnt/upan/dump/nexwatch/',
+    'paxton': '/mnt/upan/dump/paxton/',
 }
 
 # Fixed type order from original firmware (QEMU-verified, HANDOVER.md line 77).
@@ -6830,6 +6895,7 @@ DUMP_TYPE_ORDER = [
     ('Indala ID',          'indala'),     # 25
     ('iClass',             'iclass'),     # 26
     ('EM4X05 ID',          'em4x05'),     # 27
+    ('Paxton',              'paxton'),     # 28
 ]
 
 
@@ -6851,6 +6917,7 @@ class CardWalletActivity(BaseActivity):
         self._toast = None
         self._dump_dir = None
         self._dump_type_key = None
+        self._card_type = None
         self._type_index = 0
         self._file_list = []
         self._is_dump_list_empty = True
@@ -6886,8 +6953,16 @@ class CardWalletActivity(BaseActivity):
         self._clearContent()
         if self._toast:
             self._toast.cancel()
-        self.setLeftButton('')
-        self.setRightButton('')
+        # dismissButton() (not setLeftButton('')/setRightButton('')) --
+        # the latter only delete the button TEXT tags, leaving the dark
+        # #222222 button-bar background rect (TAG_BTN_BG) drawn by
+        # _setupButtonBg() behind. Once the File List screen has shown
+        # Details/Delete (which draws that bg), returning here left a
+        # permanent black bar at the bottom that survived list scrolling.
+        # dismissButton() with no args removes the bg too and resets
+        # _is_button_inited so _setupButtonBg() draws it again cleanly
+        # (and in the correct z-order) if a button screen is shown later.
+        self.dismissButton()
         canvas = self.getCanvas()
         if canvas is None:
             return
@@ -6938,10 +7013,24 @@ class CardWalletActivity(BaseActivity):
             try:
                 entries = os.listdir(self._dump_dir)
                 valid_ext = ('.bin', '.eml', '.txt', '.json', '.pm3')
-                self._file_list = sorted(
+                all_files = sorted(
                     [f for f in entries
                      if os.path.isfile(os.path.join(self._dump_dir, f))
                      and any(f.lower().endswith(ext) for ext in valid_ext)])
+                # For types where iceman saves multiple files per dump set
+                # (.bin + .json etc), show only one entry per stem —
+                # deduplicate by stem, preferring .bin as the canonical entry.
+                if self._card_type in ('t55xx', 'mf1', 'mfu', 'iclass', 'icode'):
+                    seen_stems = set()
+                    deduped = []
+                    for f in all_files:
+                        stem = os.path.splitext(f)[0]
+                        if stem not in seen_stems:
+                            seen_stems.add(stem)
+                            deduped.append(f)
+                    self._file_list = deduped
+                else:
+                    self._file_list = all_files
             except OSError:
                 self._file_list = []
         self._is_dump_list_empty = len(self._file_list) == 0
@@ -6949,8 +7038,11 @@ class CardWalletActivity(BaseActivity):
         if canvas is None:
             return
         if self._is_dump_list_empty:
-            self.setLeftButton('')
-            self.setRightButton('')
+            # Same TAG_BTN_BG fix as _showTypeList: dismissButton() clears
+            # the dark button-bar background too (not just the text), in
+            # case this list went from non-empty (Details/Delete shown,
+            # bg drawn) to empty (e.g. last dump deleted).
+            self.dismissButton()
             from lib.widget import BigTextListView
             self._btlv = BigTextListView(canvas)
             self._btlv.drawStr('No dump info. \nOnly support:\n.bin .eml .txt')
@@ -7015,8 +7107,21 @@ class CardWalletActivity(BaseActivity):
         if m:
             return '%s(%s)' % (m.group(1), m.group(2))
 
-        # ID-based (EM410x, HID, etc): {Type}-ID_{data}_{index} or {Type}_{data}_{index}
-        # Also handles 4-field: {Type}_{F1}_{F2}_{F3}_{index}
+        # LF ID-based: {Type}-ID_{data}_{index}
+        # Anchors on '-ID_' to handle any prefix depth correctly
+        # (e.g. HID-Prox-ID_, GProxII-ID_, KERI-ID_).
+        # FC/CN filenames strip the FC-CN_ label to show just the
+        # values (e.g. 172-26272(1)), consistent with raw hex types
+        # that show only their card data (e.g. AABA517B(1)).
+        m = re.match(r'.+-ID_(.+)_(\d+)$', base)
+        if m:
+            data = m.group(1)
+            fc_m = re.match(r'^FC-CN_(.+)$', data)
+            if fc_m:
+                data = fc_m.group(1)
+            return '%s(%s)' % (data, m.group(2))
+
+        # Fallback catch-all
         m = re.match(r'\S+?[-_](\S+?)_(\d+)$', base)
         if m:
             return '%s(%s)' % (m.group(1), m.group(2))
@@ -7046,12 +7151,26 @@ class CardWalletActivity(BaseActivity):
 
     def _confirmDelete(self):
         if self._selected_file and self._dump_dir:
-            filepath = os.path.join(self._dump_dir, self._selected_file)
-            try:
-                if os.path.isfile(filepath):
-                    os.remove(filepath)
-            except OSError:
-                pass
+            stem = os.path.splitext(self._selected_file)[0]
+            # For types where iceman saves multiple files per dump set,
+            # delete all files sharing the same stem (.bin, .json, .eml etc).
+            if self._card_type in ('t55xx', 'mf1', 'mfu', 'iclass', 'icode'):
+                try:
+                    for f in os.listdir(self._dump_dir):
+                        if os.path.splitext(f)[0] == stem:
+                            try:
+                                os.remove(os.path.join(self._dump_dir, f))
+                            except OSError:
+                                pass
+                except OSError:
+                    pass
+            else:
+                filepath = os.path.join(self._dump_dir, self._selected_file)
+                try:
+                    if os.path.isfile(filepath):
+                        os.remove(filepath)
+                except OSError:
+                    pass
         self._selected_file = None
         # Check if any files remain
         remaining = []
@@ -7090,6 +7209,7 @@ class CardWalletActivity(BaseActivity):
         _name, dir_key = DUMP_TYPE_ORDER[real_idx]
         self._dump_type_key = dir_key
         self._dump_dir = DUMP_DIRS.get(dir_key)
+        self._card_type = dir_key
         self._showFileList()
 
     def _openTagInfo(self):
@@ -7936,6 +8056,7 @@ class ReadFromHistoryActivity(BaseActivity):
         'fdx': 28, 'gallagher': 29, 'jablotron': 30, 'keri': 31,
         'nedap': 32, 'noralsy': 33, 'pac': 34, 'paradox': 35,
         'presco': 36, 'visa2000': 37, 'nexwatch': 45, 'hf14a': 44,
+        'paxton': 48,
     }
 
     # dump_type_key -> SIM_MAP index (for sim_for_info)
@@ -7948,6 +8069,12 @@ class ReadFromHistoryActivity(BaseActivity):
     # Types that use write_file_base (HF file-based writes)
     _WRITE_FILE_TYPES = {'mf1', 'mfu', 'iclass', 'felica', 'legic', 'hf14a', 'icode'}
     # Types that use write_lf_dump (raw T55xx restore)
+    # Note: 'paxton' removed — types 48/49 now dispatch through _LF_TYPES
+    # → lfwrite.write() → HITAG_WRITE_MAP → write_paxton_blocks(), which
+    # bypasses the T55xx check_detect and _inline_verify used by the other
+    # LF ID types (Paxton is Hitag2, not T55xx). _write_id() sends the scan
+    # cache dict which carries raw = 32-char block payload read from dump
+    # file line 1.
     _WRITE_LF_DUMP_TYPES = {'t55xx', 'em4x05'}
 
     def __init__(self, bundle=None):
@@ -8049,27 +8176,27 @@ class ReadFromHistoryActivity(BaseActivity):
                 info['display'] = '%s-%s(%s)' % (
                     m.group(1), m.group(2).upper(), m.group(3))
         else:
-            # ID-based: {Type}_{Data}_{index}.{ext} (2-field)
-            # or {Type}_{F1}_{F2}_{F3}_{index}.{ext} (4-field)
-            m = re.match(r'(\S+)_(\S+)_(\S+)_(\S+)_(\d+).*\.(.*)', fname)
+            # LF ID-based: {Type}-ID_{data}_{index}.{ext}
+            # Anchors on '-ID_' to handle any prefix depth correctly.
+            # FC/CN data is stored sanitized in the filename
+            # (FC-CN_fc-cn) and must be restored to FC,CN:fc,cn
+            # so template.__drawID renders it correctly via
+            # its startswith('FC,CN:') check.
+            m = re.match(r'.+-ID_(.+)_(\d+)\.(.*)', fname)
             if m:
-                info['type_prefix'] = m.group(1)
-                info['data'] = m.group(2)
-                info['f2'] = m.group(3)
-                info['f3'] = m.group(4)
-                info['index'] = m.group(5)
-                info['ext'] = m.group(6)
-                info['display'] = '%s-%s(%s)' % (
-                    m.group(1), m.group(2), m.group(5))
-            else:
-                m = re.match(r'(\S+)_(\S+)_(\d+).*\.(.*)', fname)
-                if m:
-                    info['type_prefix'] = m.group(1)
-                    info['data'] = m.group(2)
-                    info['index'] = m.group(3)
-                    info['ext'] = m.group(4)
-                    info['display'] = '%s-%s(%s)' % (
-                        m.group(1), m.group(2), m.group(3))
+                raw_data = m.group(1)
+                # Restore FC-CN_<fc>-<cn> -> FC,CN: <fc>,<cn>
+                # Space after colon matches getFCCN() output exactly so
+                # template.__drawID startswith('FC,CN:') check passes
+                # and verify comparison against read-back data succeeds.
+                if re.match(r'^FC-CN_', raw_data):
+                    restored = raw_data.replace('_', ': ', 1).replace('-', ',')
+                else:
+                    restored = raw_data
+                info['data'] = restored
+                info['index'] = m.group(2)
+                info['ext'] = m.group(3)
+                info['display'] = '%s(%s)' % (raw_data, m.group(2))
         return info
 
     def _buildScanCache(self):
@@ -8092,19 +8219,58 @@ class ReadFromHistoryActivity(BaseActivity):
             digits = uidlen.replace('B', '') if uidlen else '4'
             cache['len'] = int(digits)
             size = info.get('size', '1K')
+
+            # Attempt to read UID/SAK/ATQA from the .json sidecar produced
+            # by hfmfread.save_json().  These are the real values from the
+            # anticollision response, not derived from the filename.
+            # The JSON stores ATQA in little-endian block order (e.g. '0400');
+            # scan cache uses big-endian display order (e.g. '0004') — swap.
+            # Fall back to filename-parsed values when the sidecar is absent
+            # (e.g. dumps created before this feature, or Gen1a csave path).
+            uid_from_json = None
+            sak_from_json = None
+            atqa_from_json = None
+            len_from_json = None
+            if self._file_path:
+                import json as _json
+                stem = os.path.splitext(self._file_path)[0]
+                json_path = stem + '.json'
+                try:
+                    with open(json_path, 'r') as _jf:
+                        _jdoc = _json.load(_jf)
+                    _card = _jdoc.get('Card', {})
+                    _uid = _card.get('UID', '')
+                    _sak = _card.get('SAK', '')
+                    _atqa = _card.get('ATQA', '')
+                    if _uid:
+                        uid_from_json = _uid.upper()
+                        len_from_json = len(_uid) // 2
+                    if _sak:
+                        sak_from_json = _sak.upper()
+                    if _atqa and len(_atqa) == 4:
+                        # JSON ATQA is LE ('0400') → swap to cache form ('0004')
+                        atqa_from_json = _atqa[2:4] + _atqa[0:2]
+                except Exception:
+                    pass
+
+            # Prefer JSON values; fall back to filename-parsed values
+            cache['uid'] = uid_from_json or uid
+            if len_from_json is not None:
+                cache['len'] = len_from_json
+
             if size == '4K':
-                cache['sak'] = '08'
-                cache['atqa'] = '0004'
+                cache['sak'] = sak_from_json or '08'
+                cache['atqa'] = atqa_from_json or '0004'
                 cache['nameStr'] = 'M1 S70 4K (%s)' % uidlen
                 cache['type'] = 0
             elif size == 'Mini':
-                cache['sak'] = '08'
-                cache['atqa'] = '0004'
+                cache['sak'] = sak_from_json or '08'
+                cache['atqa'] = atqa_from_json or '0004'
                 cache['nameStr'] = 'M1 Mini 0.3K'
                 cache['type'] = 25
             else:
-                cache['sak'] = '08'
-                cache['atqa'] = '0004'
+                cache['sak'] = sak_from_json or '08'
+                cache['atqa'] = atqa_from_json or '0004'
                 cache['nameStr'] = 'M1 S50 1K (%s)' % uidlen
         elif dtk == 'mfu':
             cache['uid'] = info.get('uid', '00000000000000')
@@ -8115,10 +8281,85 @@ class ReadFromHistoryActivity(BaseActivity):
         elif dtk in ('em410x', 'hid', 'indala', 'awid', 'fdx', 'viking',
                       'keri', 'pyramid', 'paradox', 'jablotron', 'noralsy',
                       'nexwatch', 'securakey', 'pac', 'gproxii', 'nedap',
-                      'gallagher', 'visa2000', 'presco', 'ioprox'):
+                      'gallagher', 'visa2000', 'presco', 'ioprox', 'paxton'):
+            # info['data'] is the filename-derived identity. For OLD dumps
+            # (pre-v2) this is the only source of the display string, so it
+            # serves as the backwards-compatible fallback below.
             data = info.get('data', '')
-            cache['data'] = data
-            cache['raw'] = data
+
+            # Read the dump file. Format v2 (lfread.py _save_txt):
+            #   line 1  : raw hex   -> cache['raw']  (WRITE payload)
+            #   line 2  : display   -> cache['data'] (tag-info view)
+            #   line 3+ : key=value -> individual sim-field cache keys
+            # Old single-line dumps have only line 1 (raw); line 2/3+ absent.
+            lines = []
+            if self._file_path:
+                try:
+                    with open(self._file_path, 'r') as _f:
+                        lines = _f.read().split('\n')
+                except Exception:
+                    pass
+
+            line1 = lines[0].strip() if len(lines) > 0 else ''
+            line2 = lines[1].strip() if len(lines) > 1 else ''
+
+            # raw (write path): line 1, else fall back to filename identity.
+            cache['raw'] = line1 if line1 else data
+
+            # data (display): line 2 (new dumps) -> filename identity
+            # (old dumps, keeps FC/CN + Noralsy CN/Year display working via
+            # _parseFilename restore) -> raw as last resort.
+            if line2:
+                cache['data'] = line2
+            elif data:
+                cache['data'] = data
+            else:
+                cache['data'] = cache['raw']
+
+            # line 3+ : key=value sim fields (new dumps only). Generic — sets
+            # whatever keys the reader stored (fc, cn, vn, len, country, nc,
+            # subtype, code, year) so simulate prepopulation just works.
+            for _ln in lines[2:]:
+                _ln = _ln.strip()
+                if '=' in _ln:
+                    _k, _v = _ln.split('=', 1)
+                    cache[_k.strip()] = _v.strip()
+
+            # Paxton: resolve correct numeric type from type= field in dump.
+            # type=net2 → 48 (Paxton Net2), type=switch2 → 49 (Paxton Switch2).
+            # Falls back to 48 for old dumps without this field.
+            if dtk == 'paxton':
+                _paxton_variant = cache.get('type', '')
+                if _paxton_variant == 'switch2':
+                    cache['type'] = 49
+                else:
+                    cache['type'] = 48
+
+            # ---- Backwards compatibility for OLD dumps (no line 3+) ----
+            # Old dumps store no per-field keys, so recover sim fields from
+            # the display string / filename identity, mirroring the live
+            # scan decompose. New dumps already have these keys from line 3+
+            # (the 'not in cache' guards avoid overwriting them).
+            ddisp = cache['data']
+            if dtk == 'fdx' and 'country' not in cache and ddisp and '-' in ddisp:
+                _p = ddisp.split('-', 1)
+                if len(_p) == 2:
+                    cache['country'] = _p[0]
+                    cache['nc'] = _p[1]
+            if dtk == 'noralsy' and 'cn' not in cache and ddisp and '-' in ddisp:
+                _p = ddisp.split('-', 1)
+                if len(_p) == 2:
+                    cache['cn'] = _p[0]
+                    cache['year'] = _p[1]
+            if dtk in ('awid', 'gproxii', 'pyramid', 'gallagher', 'securakey',
+                       'paradox', 'hid') and 'fc' not in cache and \
+                    ddisp and ddisp.startswith('FC,CN:'):
+                _vals = ddisp.replace(' ', '').split(':', 1)[1]  # 'fc,cn'
+                _p = _vals.split(',', 1)
+                if len(_p) == 2 and _p[0] != 'X':
+                    cache['fc'] = _p[0]
+                if len(_p) == 2 and _p[1] != 'X':
+                    cache['cn'] = _p[1]
         elif dtk == 'felica':
             cache['uid'] = info.get('uid', '')
         elif dtk in ('icode', 'hf14a'):
@@ -8186,7 +8427,10 @@ class ReadFromHistoryActivity(BaseActivity):
 
     def _write_lf_dump(self):
         # Bundle = {'file': path_with_extension}
-        bundle = {'file': self._file_path}
+        # Include type so WriteActivity can dispatch correctly even if
+        # the scan cache is cleared between activities.
+        type_num = self._TYPE_NUMBERS.get(self._dump_type_key, -1)
+        bundle = {'file': self._file_path, 'type': type_num}
         actstack.start_activity(WarningWriteActivity, bundle)
 
     # ------------------------------------------------------------------

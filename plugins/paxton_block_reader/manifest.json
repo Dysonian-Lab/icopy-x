@@ -1,0 +1,9 @@
+{
+    "name": "Paxton Block Reader",
+    "version": "1.0.4",
+    "author": "Amec0e",
+    "description": "Read a Paxton (Hitag2) tag and display blocks 0-7, product type (Net2/Switch2), UID and Paxton ID (Net2). No password, no save.",
+    "entry_class": "PaxtonBlockReaderPlugin",
+    "permissions": ["pm3"],
+    "order": 8
+}
