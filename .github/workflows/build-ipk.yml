@@ -11,6 +11,10 @@ on:
         description: 'PM3 release tag (leave empty for latest v4.x)'
         required: false
         default: ''
+      release_tag:
+        description: 'Existing iCopy-X tag to build & release (e.g. v1.1.2). Leave empty for a build-only run.'
+        required: false
+        default: ''
 
 env:
   PM3_REPO: https://github.com/RfidResearchGroup/proxmark3.git
@@ -42,12 +46,46 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+  ensure-tag:
+    name: Ensure Release Tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release tag if it does not exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          # Only relevant for manual runs that supply a release_tag. Tag pushes
+          # already point at a real tag, so there is nothing to create here.
+          if [ -z "$TAG" ]; then
+            echo "No release_tag input — nothing to create."
+            exit 0
+          fi
+
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — the build will check it out as-is."
+            exit 0
+          fi
+
+          # Create the tag at the commit this workflow was dispatched from
+          # (HEAD of the selected branch). Using GITHUB_TOKEN here does NOT
+          # trigger the on:push:tags workflow, so there is no double build.
+          echo "Tag $TAG not found — creating it at ${{ github.sha }} (branch ${{ github.ref_name }})."
+          gh api --method POST "repos/${{ github.repository }}/git/refs" \
+            -f "ref=refs/tags/$TAG" \
+            -f "sha=${{ github.sha }}"
+          echo "Created tag $TAG."
+
   test:
     name: Verify IPK Contents
     needs: [cross-compile-pm3, cross-compile-pm3-firmware]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -76,7 +114,7 @@ jobs:
 
       - name: Build and verify flash IPK
         env:
-          ICOPYX_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
         run: |
           python tools/build_ipk.py --sn UNIVERSAL --output flash.ipk
 
@@ -143,7 +181,7 @@ jobs:
 
       - name: Build and verify no-flash IPK
         env:
-          ICOPYX_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
         run: |
           python tools/build_ipk.py --sn UNIVERSAL --no-flash --output noflash.ipk
 
@@ -196,12 +234,14 @@ jobs:
 
   cross-compile-pm3:
     name: Cross-compile Proxmark3 Client
-    needs: [resolve-pm3-tag]
+    needs: [resolve-pm3-tag, ensure-tag]
     runs-on: ubuntu-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
 
       - name: Cross-compile PM3 client for iCopy-X (Docker ubuntu:16.04)
         run: |
@@ -305,12 +345,14 @@ jobs:
 
   cross-compile-pm3-firmware:
     name: Cross-compile PM3 Firmware (fullimage)
-    needs: [resolve-pm3-tag]
+    needs: [resolve-pm3-tag, ensure-tag]
     runs-on: ubuntu-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
 
       - name: Install ARM cross-compiler and PM3 build deps
         run: |
@@ -488,6 +530,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
 
       - name: Download PM3 client
         uses: actions/download-artifact@v4
@@ -516,12 +560,12 @@ jobs:
 
       - name: Build flash IPK
         env:
-          ICOPYX_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
         run: python tools/build_ipk.py --sn UNIVERSAL --output icopy-x-flash.ipk
 
       - name: Build no-flash IPK
         env:
-          ICOPYX_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
         run: python tools/build_ipk.py --sn UNIVERSAL --no-flash --output icopy-x-noflash.ipk
 
       - name: Upload flash IPK
@@ -538,13 +582,18 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-ipk, build-iceman-client-linux, build-iceman-client-windows, build-iceman-client-macos]
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [resolve-pm3-tag, build-ipk, build-iceman-client-linux, build-iceman-client-windows, build-iceman-client-macos]
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+      PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Download flash IPK
         uses: actions/download-artifact@v4
@@ -600,13 +649,14 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             icopy-x-flash.ipk
             icopy-x-noflash.ipk
             clients-flash.zip
             clients-noflash.zip
           body: |
-            ## iCopy-X Open Source Firmware ${{ github.ref_name }}
+            ## iCopy-X Open Source Firmware ${{ env.RELEASE_TAG }}
 
             ### Two IPK variants
 
