@@ -7102,6 +7102,13 @@ class CardWalletActivity(BaseActivity):
         if m:
             return '%s(%s)' % (m.group(1), m.group(2))
 
+        # Paxton: {Paxton}-ID_{UID}_{Block5}_{index} — two identity fields.
+        # Matched before the UID-based regex so an all-decimal Block5 isn't
+        # mistaken for the file index.
+        m = re.match(r'^Paxton-ID_(.+)_(\d+)$', base)
+        if m:
+            return '%s(%s)' % (m.group(1), m.group(2))
+
         # UID-based (MFU, Felica, ICODE, HF14A): {Prefix}_{UID}_{index}
         m = re.match(r'[A-Za-z0-9]+-?[A-Za-z0-9]*_([A-Fa-f\d]+)_(\d+)', base)
         if m:
