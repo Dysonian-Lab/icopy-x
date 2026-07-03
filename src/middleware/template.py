@@ -847,8 +847,9 @@ def __drawPaxton(data, parent):
     Switch2 (type 49):
       line 1 (y=128): UID: <Hitag2 internal UID>         e.g. A4B90915
 
-    data['data'] holds the 5-byte padded hex Paxton ID.
-    data['uid']  holds the Hitag2 internal UID from lf search.
+    data['paxid'] holds the 5-byte padded hex Paxton ID (Net2 only; older
+                  dumps fall back to data['data']).
+    data['uid']   holds the Hitag2 internal UID from lf search.
     """
     __drawFinalByData(data, parent)
     if data is None:
@@ -859,7 +860,7 @@ def __drawPaxton(data, parent):
     is_switch2 = (typ == 49)
 
     if not is_switch2:
-        paxton_id = data.get('data', '')
+        paxton_id = data.get('paxid') or data.get('data', '')
         if paxton_id:
             parent.create_text(
                 _LEFT_X, _DATA_START_Y,
