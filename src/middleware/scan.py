@@ -421,15 +421,20 @@ def scan_hitag_paxton():
                         if nib5 == '1' and int(nib4, 16) % 2 == 0:
                             tag_type = tagtypes.PAXTON_SWITCH2_ID
 
+            _padded_pax = paxton_hex.strip().zfill(10) if paxton_hex else ''
             info = {
                 'found': True,
                 'type': tag_type,
-                'data': paxton_hex.strip().zfill(10) if paxton_hex else '',
+                'data': _padded_pax,
                 'raw': '',
                 'uid': uid_raw.strip() if uid_raw else '',
                 'progress': 1,
                 'return': tag_type,
             }
+            # PaxID is valid for Net2 only; dedicated field so the renderer
+            # never confuses it with UID or generic data.
+            if tag_type == tagtypes.PAXTON_NET2_ID:
+                info['paxid'] = _padded_pax
             return info
         return createTagNoFound(1)
     except Exception:
