@@ -167,7 +167,7 @@ def _stem_from_identity(ident):
     return ident.replace(' ', '').replace(':', '_').replace(',', '-')
 
 
-def _save_txt(typ, uid, raw, display=None, extras=None):
+def _save_txt(typ, uid, raw, display=None, extras=None, fname_ident=None):
     """Save an LF read result as a multi-line .txt dump (format v2).
 
         line 1  : raw hex  — WRITE payload (the only line the write path reads).
@@ -199,6 +199,8 @@ def _save_txt(typ, uid, raw, display=None, extras=None):
         display: display string for line 2 (defaults to uid, then raw); also
                  the sim source for single-field tags.
         extras:  optional dict of per-field sim values for line 3+.
+        fname_ident: optional filename identity, decoupling the filename from
+                 line 2 (display); defaults to the line-2 identity when unset.
     """
     try:
         import appfiles
@@ -217,7 +219,7 @@ def _save_txt(typ, uid, raw, display=None, extras=None):
                 if v is not None and v != '':
                     lines.append('%s=%s' % (k, v))
 
-        ident = display or uid or raw or ''
+        ident = fname_ident if fname_ident else (display or uid or raw or '')
         safe = _stem_from_identity(ident)
         stem = '%s-ID_%s' % (prefix, safe)
 
@@ -836,7 +838,10 @@ def readPaxton(listener=None, infos=None, save=True):
         if save:
             hitag2_uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
             hitag2_uid = hitag2_uid.strip() if hitag2_uid else ''
-            _save_txt(49, paxton_id, payload, extras={'uid': hitag2_uid, 'type': 'switch2'})
+            _pax_ident = ('%s_%s' % (hitag2_uid, payload[8:16])).upper() if hitag2_uid else payload[8:16].upper()
+            _save_txt(49, hitag2_uid, payload,
+                      extras={'uid': hitag2_uid, 'type': 'switch2'},
+                      fname_ident=_pax_ident)
         result = createRetObj(paxton_id, payload, 1)
         result['type'] = 49
         return result
@@ -845,7 +850,10 @@ def readPaxton(listener=None, infos=None, save=True):
     if save:
         hitag2_uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
         hitag2_uid = hitag2_uid.strip() if hitag2_uid else ''
-        _save_txt(48, paxton_id, payload, extras={'uid': hitag2_uid, 'type': 'net2'})
+        _pax_ident = ('%s_%s' % (hitag2_uid, payload[8:16])).upper() if hitag2_uid else payload[8:16].upper()
+        _save_txt(48, hitag2_uid, payload,
+                  extras={'paxid': paxton_id, 'uid': hitag2_uid, 'type': 'net2'},
+                  fname_ident=_pax_ident)
         # Secondary EM410x dump — padded Paxton ID for direct EM clone
         _save_txt(8, paxton_id, paxton_id)
 
