@@ -1,7 +1,7 @@
 {
     "plugin": true,
     "name": "T55xx Block Reader",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "initial_state": "page_picker",
     "states": {
         "page_picker": {
@@ -28,7 +28,7 @@
                             "text": ""
                         },
                         {
-                            "text": "UP/RIGHT to cycle",
+                            "text": "UP/DOWN to cycle",
                             "size": "medium",
                             "align": "center"
                         },
@@ -46,8 +46,8 @@
                 "keys": {
                     "UP": "run:do_cycle_page",
                     "RIGHT": "run:do_cycle_page",
-                    "DOWN": "noop",
-                    "LEFT": "noop",
+                    "DOWN": "run:do_cycle_page",
+                    "LEFT": "run:do_cycle_page",
                     "OK": "run:do_confirm_page",
                     "M2": "run:do_confirm_page",
                     "M1": "finish"
@@ -116,7 +116,7 @@
                             "text": ""
                         },
                         {
-                            "text": "UP/RIGHT to cycle",
+                            "text": "UP/DOWN to cycle",
                             "size": "medium",
                             "align": "center"
                         },
@@ -134,8 +134,8 @@
                 "keys": {
                     "UP": "run:do_cycle",
                     "RIGHT": "run:do_cycle",
-                    "DOWN": "noop",
-                    "LEFT": "noop",
+                    "DOWN": "run:do_cycle_down",
+                    "LEFT": "run:do_cycle_down",
                     "OK": "run:do_confirm_single",
                     "M2": "run:do_confirm_single",
                     "M1": "set_state:idle"
@@ -168,7 +168,7 @@
                             "text": ""
                         },
                         {
-                            "text": "UP/RIGHT to cycle",
+                            "text": "UP/DOWN to cycle",
                             "size": "medium",
                             "align": "center"
                         },
@@ -186,8 +186,8 @@
                 "keys": {
                     "UP": "run:do_cycle",
                     "RIGHT": "run:do_cycle",
-                    "DOWN": "noop",
-                    "LEFT": "noop",
+                    "DOWN": "run:do_cycle_down",
+                    "LEFT": "run:do_cycle_down",
                     "OK": "run:do_confirm_start",
                     "M2": "run:do_confirm_start",
                     "M1": "set_state:idle"
@@ -222,7 +222,7 @@
                             "text": ""
                         },
                         {
-                            "text": "UP/RIGHT to cycle",
+                            "text": "UP/DOWN to cycle",
                             "size": "medium",
                             "align": "center"
                         },
@@ -240,8 +240,8 @@
                 "keys": {
                     "UP": "run:do_cycle_end",
                     "RIGHT": "run:do_cycle_end",
-                    "DOWN": "noop",
-                    "LEFT": "noop",
+                    "DOWN": "run:do_cycle_end_down",
+                    "LEFT": "run:do_cycle_end_down",
                     "OK": "run:do_confirm_end",
                     "M2": "run:do_confirm_end",
                     "M1": "set_state:range_start"
@@ -282,14 +282,10 @@
                     "right": "With Pwd"
                 },
                 "keys": {
-                    "M1": "run:do_read",
+                    "M1": "set_state:reading",
+                    "OK": "set_state:reading",
                     "M2": "set_state:input_pwd"
                 }
-            },
-            "transitions": {
-                "on_result.status==done": "result",
-                "on_result.status==error": "error",
-                "on_error": "error"
             }
         },
         "input_pwd": {
@@ -306,9 +302,51 @@
                     "right": "Read"
                 },
                 "keys": {
-                    "OK": "run:do_read_pwd",
-                    "M2": "run:do_read_pwd",
+                    "OK": "run:do_capture_pwd",
+                    "M2": "run:do_capture_pwd",
                     "M1": "set_state:input_pwd_choice"
+                }
+            },
+            "transitions": {
+                "on_result.status==captured": "reading_pwd",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "reading": {
+            "on_enter": "run:do_read",
+            "screen": {
+                "title": "T55xx Block Reader",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "result",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "reading_pwd": {
+            "on_enter": "run:do_read_pwd",
+            "screen": {
+                "title": "T55xx Block Reader",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
                 }
             },
             "transitions": {
