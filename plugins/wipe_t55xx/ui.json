@@ -1,7 +1,7 @@
 {
     "plugin": true,
     "name": "T55xx Wipe",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "initial_state": "idle",
     "states": {
         "idle": {
