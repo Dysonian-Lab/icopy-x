@@ -179,6 +179,59 @@ jobs:
           print('Flash IPK verification PASSED')
           "
 
+      - name: Build and verify no-flash IPK
+        env:
+          ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+        run: |
+          python tools/build_ipk.py --sn UNIVERSAL --no-flash --output noflash.ipk
+
+          python3 -c "
+          import zipfile, sys
+          errors = []
+          with zipfile.ZipFile('noflash.ipk') as z:
+              names = set(z.namelist())
+
+              # Core structure
+              for req in ['app.py', 'data/conf.ini']:
+                  if req not in names:
+                      errors.append(f'MISSING: {req}')
+
+              # Python modules
+              py_libs = [n for n in names if n.startswith('lib/') and n.endswith('.py')]
+              if len(py_libs) < 50:
+                  errors.append(f'Too few lib/*.py: {len(py_libs)} (expected 50+)')
+
+              # PM3 binary + lua (factory versions from build/)
+              if 'pm3/proxmark3' not in names:
+                  errors.append('MISSING: pm3/proxmark3')
+              if 'pm3/lua.zip' not in names:
+                  errors.append('MISSING: pm3/lua.zip')
+
+              # PM3 binary should be factory (smaller than iceman)
+              if 'pm3/proxmark3' in names:
+                  pm3_size = z.getinfo('pm3/proxmark3').file_size
+                  if pm3_size > 3000000:
+                      errors.append(f'pm3/proxmark3 too large ({pm3_size}b) — expected factory client (<3MB)')
+
+              # Firmware (MUST NOT be present in no-flash IPK)
+              fw = [n for n in names if 'firmware' in n and n.endswith('.elf')]
+              if len(fw) > 0:
+                  errors.append(f'UNEXPECTED: firmware .elf in no-flash IPK: {fw}')
+
+              # Plugins
+              plugins = [n for n in names if n.startswith('plugins/')]
+              if len(plugins) < 5:
+                  errors.append(f'Too few plugin files: {len(plugins)}')
+
+              print(f'No-flash IPK: {len(names)} files, {len(py_libs)} py, {len(fw)} firmware (should be 0)')
+
+          if errors:
+              for e in errors:
+                  print(f'::error::{e}')
+              sys.exit(1)
+          print('No-flash IPK verification PASSED')
+          "
+
   cross-compile-pm3:
     name: Cross-compile Proxmark3 Client
     needs: [resolve-pm3-tag, ensure-tag]
@@ -510,11 +563,22 @@ jobs:
           ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
         run: python tools/build_ipk.py --sn UNIVERSAL --output icopy-x-flash.ipk
 
+      - name: Build no-flash IPK
+        env:
+          ICOPYX_VERSION: ${{ inputs.release_tag != '' && inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+        run: python tools/build_ipk.py --sn UNIVERSAL --no-flash --output icopy-x-noflash.ipk
+
       - name: Upload flash IPK
         uses: actions/upload-artifact@v4
         with:
           name: icopy-x-flash-ipk
           path: icopy-x-flash.ipk
+
+      - name: Upload no-flash IPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: icopy-x-noflash-ipk
+          path: icopy-x-noflash.ipk
 
   release:
     name: Create Release
@@ -535,6 +599,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: icopy-x-flash-ipk
+
+      - name: Download no-flash IPK
+        uses: actions/download-artifact@v4
+        with:
+          name: icopy-x-noflash-ipk
 
       - name: Download iceman clients
         uses: actions/download-artifact@v4
@@ -565,32 +634,50 @@ jobs:
           cd /tmp/clients-flash && zip -r ${{ github.workspace }}/clients-flash.zip .
           echo "=== clients-flash.zip ===" && find . -type d | sort
 
+      - name: Package clients-noflash.zip
+        run: |
+          mkdir -p /tmp/clients-noflash/linux /tmp/clients-noflash/windows /tmp/clients-noflash/macos
+          # Binaries per platform
+          cp build/clients/factory/linux/proxmark3 /tmp/clients-noflash/linux/
+          cp build/clients/factory/macos/proxmark3 /tmp/clients-noflash/macos/
+          cp -r build/clients/factory/windows/* /tmp/clients-noflash/windows/
+          # Shared data (factory lualibs/luascripts/hardnested/json)
+          cp -r build/clients/factory/share/* /tmp/clients-noflash/
+          cd /tmp/clients-noflash && zip -r ${{ github.workspace }}/clients-noflash.zip .
+          echo "=== clients-noflash.zip ===" && find . -type d | sort
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
             icopy-x-flash.ipk
+            icopy-x-noflash.ipk
             clients-flash.zip
+            clients-noflash.zip
           body: |
             ## iCopy-X Open Source Firmware ${{ env.RELEASE_TAG }}
 
-            ### IPK
+            ### Two IPK variants
 
-            | File | PM3 firmware | LUA scripts |
-            |------|-------------|-------------|
-            | `icopy-x-flash.ipk` | RRG/Iceman (included) | Lua 5.4 (iceman) |
+            | File | PM3 firmware | LUA scripts | Use when |
+            |------|-------------|-------------|----------|
+            | `icopy-x-flash.ipk` | RRG/Iceman (included) | Lua 5.4 (iceman) | You want the latest PM3 client + firmware |
+            | `icopy-x-noflash.ipk` | Unchanged (factory) | Lua 5.1 (factory) | You want to keep your current PM3 version |
 
             ### Installation
 
             1. Ensure that your device is up to date (1.0.90 - get it from here: https://icopyx.com/pages/update-your-icopy-x)
-            2. Download the IPK
+            2. Download the IPK of your choice
             3. Put your iCopy-X into PC-Mode
             4. Delete ALL OTHER IPK files from the device
             5. Transfer the IPK onto your device and close PC-Mode
             6. Navigate to About > Update, and press [OK]
             7. Device will restart
             8. While restarting, the screen will flash and stay blank for up to 10 seconds. Don't panic!
+
+            If you're using the "flash" version, there will be some extra steps:
+
             9. Device will restart and detect that you need to flash your device. Click OK.
             10. Read the instructions: Make sure your device has charge, make sure it's plugged in, and then Start
             11. After flashing, your device will restart.
@@ -603,10 +690,11 @@ jobs:
             | File | PM3 version | Contents |
             |------|------------|----------|
             | `clients-flash.zip` | RRG/Iceman ${{ env.PM3_TAG }} | Linux x86_64 + macOS + Windows CLI clients |
+            | `clients-noflash.zip` | Factory (iCopy-X original) | Windows client (pre-built) |
 
             ### Using the companion client
 
-            1. Download `clients-flash.zip`
+            1. Download the matching `clients-[flash|noflash].zip` for your IPK variant
             2. Extract to a folder on your computer
             3. Put your iCopy-X into PC-Mode
             4. Connect via USB
