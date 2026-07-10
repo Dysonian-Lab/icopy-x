@@ -128,6 +128,7 @@ _DUMP_DIRS = {
     35: ('paradox',   'Paradox'),
     36: ('presco',    'Presco'),
     37: ('visa2000',  'Visa2000'),
+    38: ('hitag2',    'Hitag2'),
     45: ('nexwatch',  'NexWatch'),
     48: ('paxton',    'Paxton'),
     49: ('paxton',    'Paxton'),
@@ -777,16 +778,20 @@ def readPaxton(listener=None, infos=None, save=True):
       Pre-flight 2: lf hitag read --ht2 -k BDF5E846 — authenticated block
                     read that extracts the block table and Paxton hex ID.
 
-    Extracts blocks 4-7 (16 user data bytes, 32-char hex write payload).
+    Extracts pages 1-7 (56-char hex write payload). Blocks 4-7 are the Paxton
+    user data; pages 1-3 additionally carry the RWD password (page 1 =
+    BDF5E846), reserved (page 2) and config/tag-password (page 3), so a
+    pax->HT2 clone can reconstruct a working Paxton on a blank HT2.
     Extracts the Paxton hex ID from "Paxton id... D | 0xH", padded to
     10 hex chars (5 bytes, e.g. 0003c3f9b6).
 
     data = padded Paxton ID (display only).
-    raw  = 32-char block 4-7 payload (write payload — passed to
+    raw  = 56-char pages 1-7 payload (write payload — passed to
            write_paxton_blocks() via _RAW_CLONE_PAR_TYPES in write.py).
+           pax->pax writes blocks 4-7 (raw[24:56]); pax->HT2 writes 1-7.
 
     Saves two dump files on success:
-      1. Paxton dump (/mnt/upan/dump/paxton/) — line 1: 32-char block payload,
+      1. Paxton dump (/mnt/upan/dump/paxton/) — line 1: 56-char pages 1-7,
          line 2: padded Paxton ID, line 3: uid=<hitag2 UID>
       2. EM410x dump (/mnt/upan/dump/em410x/) — padded Paxton ID for direct
          EM clone (downgrade attack path).
@@ -804,17 +809,25 @@ def readPaxton(listener=None, infos=None, save=True):
     if not content or executor.isEmptyContent():
         return createRetObj(None, None, -1)
 
-    # Extract blocks 4-7 and concatenate into 32-char hex write payload
+    # Extract pages 1-7 and concatenate into a 56-char hex write payload.
+    # Pages 1-7 (not just 4-7) so a pax->HT2 clone carries the whole tag —
+    # crucially page 1 = the Paxton RWD password (BDF5E846), which is what
+    # makes a cloned blank HT2 answer a Paxton reader. blocks47 below is the
+    # blocks 4-7 slice; family detection, Paxton-ID display and the filename
+    # identity all operate on it, byte-for-byte identical to the pre-1-7 code
+    # (blocks47[i] == the old 32-char payload[i]).
     payload = ''
-    for blk in range(4, 8):
+    for blk in range(1, 8):
         pattern = lfsearch.REGEX_HITAG2_BLOCK.format(b=blk)
         m = re.search(pattern, content)
         if not m:
             return createRetObj(None, None, -1)
         payload += m.group(1).replace(' ', '')
 
-    if len(payload) != 32:
+    if len(payload) != 56:
         return createRetObj(None, None, -1)
+
+    blocks47 = payload[24:56]   # blocks 4-7 (32-char) — detection/display slice
 
     # Extract and pad Paxton hex ID (5 bytes / 10 hex chars) — display only
     paxton_hex = executor.getContentFromRegexG(lfsearch.REGEX_PAXTON_HEX, 1)
@@ -826,11 +839,11 @@ def readPaxton(listener=None, infos=None, save=True):
     #            block 7, nibble 4 (payload[27]) is even AND
     #            block 7, nibble 5 (payload[28]) == '1'
     #            Valid nib4/nib5 pairs: 01, 21, 41, 61, 81
-    is_net2 = payload[11].upper() == 'F'
+    is_net2 = blocks47[11].upper() == 'F'
 
     if not is_net2:
-        nib4 = payload[27].upper()
-        nib5 = payload[28].upper()
+        nib4 = blocks47[27].upper()
+        nib5 = blocks47[28].upper()
         is_switch2 = (nib5 == '1' and int(nib4, 16) % 2 == 0)
         if not is_switch2:
             return createRetObj(None, None, -1)
@@ -838,7 +851,7 @@ def readPaxton(listener=None, infos=None, save=True):
         if save:
             hitag2_uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
             hitag2_uid = hitag2_uid.strip() if hitag2_uid else ''
-            _pax_ident = ('%s_%s' % (hitag2_uid, payload[8:16])).upper() if hitag2_uid else payload[8:16].upper()
+            _pax_ident = ('%s_%s' % (hitag2_uid, blocks47[8:16])).upper() if hitag2_uid else blocks47[8:16].upper()
             _save_txt(49, hitag2_uid, payload,
                       extras={'uid': hitag2_uid, 'type': 'switch2'},
                       fname_ident=_pax_ident)
@@ -850,7 +863,7 @@ def readPaxton(listener=None, infos=None, save=True):
     if save:
         hitag2_uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
         hitag2_uid = hitag2_uid.strip() if hitag2_uid else ''
-        _pax_ident = ('%s_%s' % (hitag2_uid, payload[8:16])).upper() if hitag2_uid else payload[8:16].upper()
+        _pax_ident = ('%s_%s' % (hitag2_uid, blocks47[8:16])).upper() if hitag2_uid else blocks47[8:16].upper()
         _save_txt(48, hitag2_uid, payload,
                   extras={'paxid': paxton_id, 'uid': hitag2_uid, 'type': 'net2'},
                   fname_ident=_pax_ident)
@@ -860,6 +873,74 @@ def readPaxton(listener=None, infos=None, save=True):
     # data = Paxton ID (display); raw = block payload (write)
     result = createRetObj(paxton_id, payload, 1)
     result['type'] = 48
+    return result
+
+
+def readHitag2(listener=None, infos=None, save=True):
+    """Read a generic Hitag2 tag (password mode) and save one dump file.
+
+    Uses the Hitag2 factory-default RWD password 4D494B52 ("MIKR"), the same
+    key the firmware documents as the pwd-mode default (cmdlfhitag.c). The
+    authenticated read returns the 8-page memory table; pages 1-7 form the
+    write payload. Page 0 is the factory-locked serial and is never written
+    back, but is captured for the filename identity.
+
+    Hitag2 password-mode page layout (HT2 datasheet 5.2):
+        0  Serial Number (UID, locked)
+        1  Password RWD
+        2  reserved
+        3  8-bit config + 24-bit Password TAG
+        4-7 read/write data
+
+    A Paxton fob authenticates on BDF5E846, not the default key, so this
+    default-key read simply returns nothing for a Paxton and fails cleanly —
+    Paxton is handled by readPaxton()/scan_hitag_paxton(), never here.
+
+    data = Hitag2 UID (display only).
+    raw  = 56-char payload = pages 1-7 concatenated in page order
+           (page1 || page2 || ... || page7). write_hitag2_blocks() reorders
+           these to write page 1 (Password RWD) LAST.
+
+    Saves one dump file (format v2) under /mnt/upan/dump/hitag2/:
+        line 1: 56-char pages 1-7 payload (write payload — the only line the
+                write path reads).
+        line 2: Hitag2 UID (display).
+        line 3: uid=<hitag2 UID>.
+    """
+    ret = executor.startPM3Task('lf hitag read --ht2 -k 4D494B52', 30000)
+    if ret == -1:
+        return createRetObj(None, None, -1)
+    content = executor.getPrintContent()
+    if not content or executor.isEmptyContent():
+        return createRetObj(None, None, -1)
+
+    # Extract pages 1-7 (in page order) and concatenate into a 56-char payload.
+    # Reuses the same block-table regex that readPaxton() uses for blocks 4-7.
+    payload = ''
+    for blk in range(1, 8):
+        pattern = lfsearch.REGEX_HITAG2_BLOCK.format(b=blk)
+        m = re.search(pattern, content)
+        if not m:
+            return createRetObj(None, None, -1)
+        payload += m.group(1).replace(' ', '')
+
+    if len(payload) != 56:
+        return createRetObj(None, None, -1)
+
+    uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
+    uid = uid.strip() if uid else ''
+
+    if save:
+        # Filename identity is UID_Block5 (page 5 = payload[32:40]), matching
+        # the Paxton UID_Block5 convention. Line 2 (display) stays the bare UID
+        # so the dump-info viewer shows a clean "UID: <uid>" line.
+        _ht2_ident = ('%s_%s' % (uid, payload[32:40])).upper() if uid else payload[32:40].upper()
+        _save_txt(38, uid, payload, display=uid,
+                  extras={'uid': uid}, fname_ident=_ht2_ident)
+
+    # data = UID (display); raw = pages 1-7 payload (write)
+    result = createRetObj(uid, payload, 1)
+    result['type'] = 38
     return result
 
 
@@ -885,6 +966,7 @@ READ = {
     35: readParadox,
     36: readPresco,
     37: readVisa2000,
+    38: readHitag2,
     45: readNexWatch,
     48: readPaxton,
     49: readPaxton,
