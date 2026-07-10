@@ -255,15 +255,21 @@ def verify(typ, uid_par, raw_par):
     if typ == getattr(tagtypes, 'EM4305_ID', 24):
         return verify_em4x05(raw_par)
 
-    # Paxton Net2 (48) / Switch2 (49): strict block 4-7 payload verify.
-    # No ID compare, no tag-presence fallback. Pass ONLY if a fresh
-    # authenticated read returns blocks 4-7 whose concatenation exactly
-    # matches the expected 32-char payload (raw_par):
-    #   dump-file write : raw_par = dump line 1 (block 4-7 payload)
-    #   autocopy        : raw_par = first-scanned card's block 4-7 payload
-    # readPaxton(save=False) runs `lf search` + `lf hitag read --ht2` and
-    # concatenates blocks 4-7 into its `raw` field — the fresh read-back.
-    if typ in (48, 49):
+    # Strict block-payload verify for the Hitag2-family types. No ID compare,
+    # no tag-presence fallback. The generic branch below compares the UID
+    # first, which on a clone differs between source and target (page 0 is the
+    # factory-locked serial), so it would false-FAIL every clone and never
+    # check the written blocks. The fresh read-back is via readHitag2()
+    # (`-k 4D494B52`) for type 38, or readPaxton() (`-k BDF5E846`) for 48/49 —
+    # so for Paxton the read-back doubles as a check that the target answers
+    # the Paxton password.
+    #   Hitag2 (38)      : strict full pages 1-7 compare.
+    #   Paxton (48/49)   : pax->pax wrote only blocks 4-7 (pages 1-3 are the
+    #                      target's own) -> compare blocks 4-7; pax->HT2 wrote
+    #                      pages 1-7 -> a full 1-7 match confirms the whole
+    #                      clone (incl. page 1 = BDF5E846). Legacy 32-char
+    #                      payloads are pax->pax only -> blocks 4-7.
+    if typ in (38, 48, 49):
         raw_e = str(raw_par).upper() if raw_par else ''
         if not raw_e:
             return VERIFY_FAIL
@@ -284,7 +290,21 @@ def verify(typ, uid_par, raw_par):
         if not isinstance(rr, dict) or rr.get('return', -1) != 1:
             return VERIFY_FAIL
         raw_hex = str(rr.get('raw', '') or '').upper()
-        return VERIFY_OK if (raw_hex and raw_e == raw_hex) else VERIFY_FAIL
+        if not raw_hex:
+            return VERIFY_FAIL
+
+        # Type 38 (generic Hitag2): strict full pages 1-7 compare.
+        if typ == 38:
+            return VERIFY_OK if raw_e == raw_hex else VERIFY_FAIL
+
+        # Types 48/49 (Paxton): length/target-aware.
+        # 56-char expected + exact 1-7 match => pax->HT2 full clone verified.
+        if len(raw_e) == 56 and raw_e == raw_hex:
+            return VERIFY_OK
+        # Otherwise compare blocks 4-7 (pax->pax, or legacy 32-char dump).
+        exp47 = raw_e[24:56] if len(raw_e) == 56 else raw_e
+        got47 = raw_hex[24:56] if len(raw_hex) == 56 else raw_hex
+        return VERIFY_OK if (exp47 and exp47 == got47) else VERIFY_FAIL
 
     # Step 1: scan_lfsea — check tag presence
     try:
