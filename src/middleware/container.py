@@ -63,6 +63,7 @@ _PUBLIC_ID = {
     35: 'ID1',     # Paradox
     36: 'ID1',     # Presco
     37: 'ID1',     # Visa2000
+    38: 'Hitag2',  # Hitag2
     40: 'M1-4b',   # Gen1a 4B (len=4) / Gen1a 7B (len=7) — see below
     41: 'M4-7b',   # MF S70 4K 7B
     42: 'M1-7b',   # MF S50 1K 7B
@@ -70,8 +71,8 @@ _PUBLIC_ID = {
     44: 'M1-7b',   # MF Plus 2K Gen2 7B
     45: 'ID1',     # NexWatch
     46: '\u7279\u65af\u8054',  # 特斯联
-    48: 'Paxton',  # Paxton Net2
-    49: 'Paxton',  # Paxton Switch2
+    48: 'Pax/HT2',  # Paxton Net2
+    49: 'Pax/HT2',  # Paxton Switch2
 }
 
 
