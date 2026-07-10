@@ -82,6 +82,7 @@ DIR_NAME_JABLOTRON = 'jablotron'
 DIR_NAME_SECURAKEY = 'securakey'
 DIR_NAME_NEDAP = 'nedap'
 DIR_NAME_PAXTON = 'paxton'
+DIR_NAME_HITAG2 = 'hitag2'
 
 # Constructed dump paths
 PATH_DUMP_M1 = PATH_DUMP + DIR_NAME_M1 + '/'
@@ -95,6 +96,7 @@ PATH_DUMP_EM4X05 = PATH_DUMP + DIR_NAME_EM4X05 + '/'
 PATH_DUMP_FELICA = PATH_DUMP + DIR_NAME_FELICA + '/'
 PATH_DUMP_ICLASS = PATH_DUMP + DIR_NAME_ICLASS + '/'
 PATH_DUMP_PAXTON = PATH_DUMP + DIR_NAME_PAXTON + '/'
+PATH_DUMP_HITAG2 = PATH_DUMP + DIR_NAME_HITAG2 + '/'
 
 # Key storage paths
 PATH_KEYS_M1 = PATH_KEYS + DIR_NAME_M1 + '/'
@@ -440,6 +442,10 @@ def create_nedap(uid, file):
 
 def create_paxton(uid, file):
     mkdirs_on_icopy(PATH_DUMP_PAXTON)
+
+
+def create_hitag2(uid, file):
+    mkdirs_on_icopy(PATH_DUMP_HITAG2)
 
 
 def create_mf1_keys(uid, file):
