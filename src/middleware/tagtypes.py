@@ -138,7 +138,7 @@ types = {
     35:  ('Paradox ID', True, True),
     36:  ('Presco ID', True, True),
     37:  ('Visa2000 ID', True, True),
-    38:  ('Hitag2 ID', True, False),
+    38:  ('Hitag2 ID', True, True),
     39:  ('MIFARE DESFire', True, False),
     40:  ('HF14A Other', True, False),
     41:  ('M1 S70 4K 7B', True, True),
