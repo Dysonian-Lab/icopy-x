@@ -1,7 +1,7 @@
 {
     "plugin": true,
     "name": "T55xx Recovery",
-    "version": "1.0.0",
+    "version": "1.0.7",
     "initial_state": "warning",
     "states": {
         "warning": {

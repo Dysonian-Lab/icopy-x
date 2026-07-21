@@ -749,7 +749,14 @@ def parser():
         seaObj = {}
         uid = executor.getContentFromRegexG(r'UID\.{3,}\s+([0-9A-Fa-f]+)', 1)
         seaObj['data'] = uid.strip() if uid else ''
-        seaObj['raw'] = seaObj['data']
+        # raw = '' — the 56-char pages 1-7 write payload is NOT available from
+        # lf sea (it requires the authenticated read in readHitag2()). Mirrors
+        # Paxton Check 21b: leaving raw empty lets write.py's bundle fallback
+        # (typ in (38,48,49)) source the real payload from the readHitag2()
+        # bundle. Setting raw = data (the UID) here would block that fallback
+        # and hand the 8-char UID to write_hitag2_blocks(), failing its
+        # len == 56 check — the live/AutoCopy write path.
+        seaObj['raw'] = ''
         seaObj['type'] = tagtypes.HITAG2_ID
         seaObj['found'] = True
         return seaObj

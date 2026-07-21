@@ -1,0 +1,369 @@
+{
+    "plugin": true,
+    "name": "Manage Dictionaries",
+    "version": "1.0.2",
+    "initial_state": "main_menu",
+    "states": {
+        "main_menu": {
+            "screen": {
+                "title": "Manage Dictionaries",
+                "content": {
+                    "type": "list",
+                    "items": [
+                        {"label": "1. Load Dictionaries", "action": "set_state:load_warning"},
+                        {"label": "2. Add to Dictionary", "action": "set_state:add_picker"},
+                        {"label": "3. Backup Dictionaries", "action": "set_state:backup_info"}
+                    ]
+                },
+                "buttons": {"left": "Exit", "right": "Select"},
+                "keys": {
+                    "UP": "scroll:-1",
+                    "DOWN": "scroll:1",
+                    "OK": "select",
+                    "M2": "select",
+                    "M1": "finish"
+                }
+            }
+        },
+        "load_warning": {
+            "screen": {
+                "title": "Load Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Run this once only.", "size": "medium", "align": "center"},
+                        {"text": ""},
+                        {"text": "It overwrites the SD", "size": "medium", "align": "center"},
+                        {"text": "copy, losing any keys", "size": "medium", "align": "center"},
+                        {"text": "you added manually.", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Load"},
+                "keys": {
+                    "OK": "set_state:loading",
+                    "M2": "set_state:loading",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "loading": {
+            "on_enter": "run:do_load",
+            "screen": {
+                "title": "Load Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Copying", "size": "medium", "align": "center"},
+                        {"text": "dictionaries...", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": null, "right": null}
+            },
+            "transitions": {
+                "on_result.status==done": "load_done",
+                "on_result.status==error": "load_error",
+                "on_error": "load_error"
+            }
+        },
+        "load_done": {
+            "screen": {
+                "title": "Load Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Dictionaries loaded", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "MF1:   {load_mf}", "size": "medium", "align": "center"},
+                        {"text": "T55xx: {load_t55}", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "OK"},
+                "keys": {
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "load_error": {
+            "screen": {
+                "title": "Load Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Load incomplete", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "MF1:   {load_mf}", "size": "medium", "align": "center"},
+                        {"text": "T55xx: {load_t55}", "size": "medium", "align": "center"},
+                        {"text": "Check source files", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Retry"},
+                "keys": {
+                    "OK": "set_state:loading",
+                    "M2": "set_state:loading",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "backup_info": {
+            "screen": {
+                "title": "Backup Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Backs up the current", "size": "medium", "align": "center"},
+                        {"text": "SD keys to a new", "size": "medium", "align": "center"},
+                        {"text": "numbered folder.", "size": "medium", "align": "center"},
+                        {"text": ""},
+                        {"text": "Newest is always #1", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Backup"},
+                "keys": {
+                    "OK": "set_state:backing_up",
+                    "M2": "set_state:backing_up",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "backing_up": {
+            "on_enter": "run:do_backup",
+            "screen": {
+                "title": "Backup Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Backing up...", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": null, "right": null}
+            },
+            "transitions": {
+                "on_result.status==done": "backup_done",
+                "on_result.status==empty": "backup_empty",
+                "on_result.status==error": "backup_error",
+                "on_error": "backup_error"
+            }
+        },
+        "backup_done": {
+            "screen": {
+                "title": "Backup Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Backup #1 created", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "MF1:   {backup_mf}", "size": "medium", "align": "center"},
+                        {"text": "T55xx: {backup_t55}", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "OK"},
+                "keys": {
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "backup_empty": {
+            "screen": {
+                "title": "Backup Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Nothing to back up", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "No dictionaries found", "size": "medium", "align": "center"},
+                        {"text": "on the SD card", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "OK"},
+                "keys": {
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "backup_error": {
+            "screen": {
+                "title": "Backup Dictionaries",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Backup failed", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "Could not write to", "size": "medium", "align": "center"},
+                        {"text": "the backup folder", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Retry"},
+                "keys": {
+                    "OK": "set_state:backing_up",
+                    "M2": "set_state:backing_up",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "add_picker": {
+            "on_enter": "run:do_init_add",
+            "screen": {
+                "title": "Add to Dictionary",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Select dictionary", "size": "medium", "align": "center"},
+                        {"text": ""},
+                        {"text": "{dic_type}", "size": "xlarge", "align": "center"},
+                        {"text": ""},
+                        {"text": "UP/DOWN to cycle", "size": "medium", "align": "center"},
+                        {"text": "OK/M2 to confirm", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Confirm"},
+                "keys": {
+                    "UP": "run:do_cycle_type",
+                    "DOWN": "run:do_cycle_type",
+                    "LEFT": "run:do_cycle_type",
+                    "RIGHT": "run:do_cycle_type",
+                    "OK": "run:do_confirm_type",
+                    "M2": "run:do_confirm_type",
+                    "M1": "set_state:main_menu"
+                }
+            },
+            "transitions": {
+                "on_result.status==mfc": "input_mfc",
+                "on_result.status==t55xx": "input_t55xx"
+            }
+        },
+        "input_mfc": {
+            "screen": {
+                "title": "Add MF1 Key",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Enter MFC key (12 hex)",
+                    "length": 12,
+                    "placeholder": "FFFFFFFFFFFF"
+                },
+                "buttons": {"left": "Back", "right": "Add"},
+                "keys": {
+                    "OK": "run:do_capture_mfc",
+                    "M2": "run:do_capture_mfc",
+                    "M1": "set_state:add_picker"
+                }
+            },
+            "transitions": {
+                "on_result.status==added": "add_done",
+                "on_result.status==duplicate": "add_dup",
+                "on_result.status==invalid": "add_invalid",
+                "on_result.status==error": "add_error",
+                "on_error": "add_error"
+            }
+        },
+        "input_t55xx": {
+            "screen": {
+                "title": "Add T55xx Pwd",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Enter T55xx pwd (8 hex)",
+                    "length": 8,
+                    "placeholder": "00000000"
+                },
+                "buttons": {"left": "Back", "right": "Add"},
+                "keys": {
+                    "OK": "run:do_capture_t55xx",
+                    "M2": "run:do_capture_t55xx",
+                    "M1": "set_state:add_picker"
+                }
+            },
+            "transitions": {
+                "on_result.status==added": "add_done",
+                "on_result.status==duplicate": "add_dup",
+                "on_result.status==invalid": "add_invalid",
+                "on_result.status==error": "add_error",
+                "on_error": "add_error"
+            }
+        },
+        "add_done": {
+            "screen": {
+                "title": "Add to Dictionary",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Key added", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "{dic_type}", "size": "medium", "align": "center"},
+                        {"text": "{added_key}", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Add More"},
+                "keys": {
+                    "OK": "set_state:add_picker",
+                    "M2": "set_state:add_picker",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "add_dup": {
+            "screen": {
+                "title": "Add to Dictionary",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Already present", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "{added_key}", "size": "medium", "align": "center"},
+                        {"text": "was not added again", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Add More"},
+                "keys": {
+                    "OK": "set_state:add_picker",
+                    "M2": "set_state:add_picker",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "add_invalid": {
+            "screen": {
+                "title": "Add to Dictionary",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Invalid value", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "Wrong length or", "size": "medium", "align": "center"},
+                        {"text": "not valid hex", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Retry"},
+                "keys": {
+                    "OK": "set_state:add_picker",
+                    "M2": "set_state:add_picker",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "add_error": {
+            "screen": {
+                "title": "Add to Dictionary",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Write failed", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "Could not write to", "size": "medium", "align": "center"},
+                        {"text": "the dictionary file", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Retry"},
+                "keys": {
+                    "OK": "set_state:add_picker",
+                    "M2": "set_state:add_picker",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        }
+    }
+}

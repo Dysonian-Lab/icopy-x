@@ -311,35 +311,118 @@ def write_nedap(raw):
 
 
 def write_paxton_blocks(raw):
-    """Write Paxton Net2 user data blocks 4-7 to a Hitag2 tag.
+    """Write a Paxton payload to a Paxton (pax->pax) or a plain HT2 (pax->HT2).
 
-    Pre-flight: lf search must confirm 'Valid Paxton ID found!' specifically —
-    a generic Hitag2 that does not carry a Paxton ID is rejected here.
+    Accepts a 56-char pages 1-7 payload (current readPaxton) or a legacy
+    32-char blocks 4-7 payload (old Paxton dumps).
 
-    Command: lf hitag wrbl --ht2 -p <block> -d <8hex> -k BDF5E846
+    Target detection (single lf search):
+      'Valid Paxton ID found!'  -> target is a Paxton  -> pax->pax:
+          write blocks 4,5,6,7 with the Paxton key BDF5E846. Pages 1-3 are
+          left untouched (the target already carries the Paxton password/
+          config). Works with both 56-char and legacy 32-char payloads.
+      no Paxton keyword         -> target is a plain HT2 -> pax->HT2:
+          delegate to write_hitag2_blocks(): it re-checks (rejects a Paxton,
+          requires the HT2 default-key auth) and writes pages 1-7 with page 1
+          LAST. Page 1 of the payload is the source Paxton's RWD password
+          (BDF5E846), so the blank HT2 ends up answering a Paxton reader.
+          Requires the 56-char payload; a legacy 32-char dump lacks pages 1-3
+          and is rejected.
+      nothing that authenticates -> -9 (not Paxton/HT2, or off antenna).
 
-    Paxton stores its access-control payload in blocks 4-7 only. This writer
-    targets exactly those four blocks from the 32-char hex payload produced
-    by readPaxton() and stored as line 1 of the Paxton dump file.
-
-    Args:
-        raw: 32-char hex string — blocks 4-7 concatenated (4 × 4 bytes)
-             as saved by readPaxton() (e.g. 'B4C27AC0C93F00010010000706C70010').
+    Command (pax->pax): lf hitag wrbl --ht2 -p <block> -d <8hex> -k BDF5E846
 
     Returns 1 on success, -9 on failure (lfwrite convention).
     """
-    if not raw or len(raw) != 32:
+    if not raw or len(raw) not in (32, 56):
         return -9
 
-    # Pre-flight: confirm this is specifically a Paxton card
+    # Blocks 4-7 slice (32-char), regardless of payload length.
+    blk47 = raw[24:56] if len(raw) == 56 else raw
+
+    # Detect the target
     ret = executor.startPM3Task('lf search', 30000)
-    if ret == -1 or not executor.hasKeyword('Valid Paxton ID found!'):
+    if ret == -1:
+        return -9
+
+    if executor.hasKeyword('Valid Paxton ID found!'):
+        # pax->pax: write blocks 4-7 with the Paxton key
+        import time as _time
+        for i, blk in enumerate(range(4, 8)):
+            block_data = blk47[i * 8:(i + 1) * 8].upper()
+            cmd = 'lf hitag wrbl --ht2 -p {} -d {} -k BDF5E846'.format(blk, block_data)
+            ret = executor.startPM3Task(cmd, 30000)
+            if ret == -1:
+                return -9
+            _time.sleep(0.5)
+        return 1
+
+    # pax->HT2: plain HT2 target — reconstruct a working Paxton from the full
+    # pages 1-7 (page 1 = BDF5E846). Legacy 32-char dumps can't do this.
+    if len(raw) != 56:
+        return -9
+    return write_hitag2_blocks(raw)
+
+
+def write_hitag2_blocks(raw):
+    """Write a generic Hitag2 tag's pages 1-7 (password mode).
+
+    Two pre-flight checks, mirroring readHitag2()'s gate:
+
+      Pre-flight 1: lf search — must NOT report a Paxton (rejects on
+                    "Paxton id...", the same marker REGEX_PAXTON_HEX keys
+                    off), so a Paxton fob never receives a generic-Hitag2
+                    payload.
+      Pre-flight 2: lf hitag read --ht2 -k 4D494B52 — the authenticated
+                    default-key read must return data. This is the positive
+                    confirmation that a Hitag2 is present and answers the
+                    default RWD password; anything that is not a default-key
+                    Hitag2 (wrong chip, non-default password, nothing on the
+                    antenna) returns nothing and is rejected here.
+
+    Command: lf hitag wrbl --ht2 -p <page> -d <8hex> -k 4D494B52
+
+    raw is 56 hex chars = pages 1-7 in page order (page 1 first). Pages are
+    written in the order 2,3,4,5,6,7,1 — page 1 (Password RWD) LAST. Each
+    wrbl re-authenticates with the default key, so page 1 must be written last:
+    once it is overwritten the tag no longer answers the default password and
+    any remaining writes would fail, leaving a half-written tag.
+
+    Page N data lives at raw[(N-1)*8 : N*8]. Page 0 (locked serial) is not in
+    the payload and is never written.
+
+    Args:
+        raw: 56-char hex string — pages 1-7 concatenated in page order,
+             as saved by readHitag2() (line 1 of the hitag2 dump).
+
+    Returns 1 on success, -9 on failure (lfwrite convention).
+    """
+    if not raw or len(raw) != 56:
+        return -9
+
+    # Pre-flight 1: lf search — reject if a Paxton is detected. A Paxton fob
+    # must never receive a generic-Hitag2 payload (it would overwrite its
+    # Paxton key/config). "Paxton id..." is the same marker REGEX_PAXTON_HEX
+    # keys off; a plain Hitag2 does not emit it, so there is no false rejection.
+    ret = executor.startPM3Task('lf search', 30000)
+    if ret == -1 or executor.hasKeyword('Paxton id...'):
+        return -9
+
+    # Pre-flight 2: authenticated default-key read must return data — the
+    # positive confirmation that a Hitag2 is present and answers the default
+    # RWD password (4D494B52). Anything that is not a default-key Hitag2
+    # (wrong chip, non-default password, nothing on antenna, or a Paxton whose
+    # BDF5E846 key fails here) returns nothing and is rejected.
+    ret = executor.startPM3Task('lf hitag read --ht2 -k 4D494B52', 30000)
+    if ret == -1 or executor.isEmptyContent():
         return -9
 
     import time as _time
-    for i, blk in enumerate(range(4, 8)):
-        block_data = raw[i * 8:(i + 1) * 8].upper()
-        cmd = 'lf hitag wrbl --ht2 -p {} -d {} -k BDF5E846'.format(blk, block_data)
+    # Write page 1 (Password RWD) LAST so every wrbl authenticates with the
+    # default key up to the final write.
+    for page in (2, 3, 4, 5, 6, 7, 1):
+        block_data = raw[(page - 1) * 8:page * 8].upper()
+        cmd = 'lf hitag wrbl --ht2 -p {} -d {} -k 4D494B52'.format(page, block_data)
         ret = executor.startPM3Task(cmd, 30000)
         if ret == -1:
             return -9
@@ -664,6 +747,7 @@ DUMP_WRITE_MAP = {
 # pre-flight. Running check_detect (lf t55xx wipe/detect) against a Hitag2
 # card is wrong chip, wrong protocol.
 HITAG_WRITE_MAP = {
+    38: write_hitag2_blocks,        # Generic Hitag2 — pages 1-7 (page 1 last)
     48: write_paxton_blocks,        # Paxton Net2 — blocks 4-7
     49: write_paxton_blocks,        # Paxton Switch2 — same block write path
 }

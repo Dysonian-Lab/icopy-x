@@ -118,7 +118,10 @@ _MF_ULTRALIGHT_TYPES = {2, 3, 4, 5, 6, 7}
 # dispatches through lfwrite.write() via HITAG_WRITE_MAP → write_paxton_blocks(),
 # with raw_par sourced from _RAW_CLONE_PAR_TYPES (32-char block 4-7 payload
 # from readPaxton()).
-_LF_TYPES = {8, 9, 10, 11, 12, 13, 14, 15, 16, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 45, 48, 49}
+# Type 38 (Hitag2) dispatches the same way via HITAG_WRITE_MAP →
+# write_hitag2_blocks(), with raw_par = 56-char pages 1-7 payload from
+# readHitag2() (page 1 written last).
+_LF_TYPES = {8, 9, 10, 11, 12, 13, 14, 15, 16, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 45, 48, 49}
 
 # T55xx / EM4305 (LF but with dump files)
 _LF_DUMP_TYPES = {23, 24}
@@ -130,9 +133,9 @@ _ICLASS_TYPES = {17, 18, 47}
 _ISO15693_TYPES = {19, 46}
 
 # Unsupported types (read-only or not implemented)
-# Type 38 (Hitag2) is read-only: readHitag2() saves dumps and redirects
-# Paxton cards; no write_hitag2_blocks() dispatch wired yet.
-_UNSUPPORTED_TYPES = {20, 21, 22, 27, 38, 39}
+# Type 38 (Hitag2) is now writable via HITAG_WRITE_MAP → write_hitag2_blocks()
+# and lives in _LF_TYPES (checked first), so it is no longer listed here.
+_UNSUPPORTED_TYPES = {20, 21, 22, 27, 39}
 
 
 # ---------------------------------------------------------------------------
@@ -187,11 +190,12 @@ def write(listener, infos, bundle, run_on_subthread=True):
                         data = data_field
                     raw = raw or infos.get('raw', '')
 
-                # Paxton: scan cache raw is intentionally '' (block payload not
-                # available from lf sea). Fall back to bundle which carries the
-                # 32-char block payload from readPaxton(). Covers both Net2 (48)
-                # and Switch2 (49) — same raw field, same bundle shape.
-                if not raw and typ in (48, 49) and isinstance(bundle, dict):
+                # Paxton / Hitag2: scan cache raw is intentionally '' (block
+                # payload not available from lf sea). Fall back to bundle which
+                # carries the block payload from readPaxton() (32-char, Net2 48 /
+                # Switch2 49) or readHitag2() (56-char pages 1-7, type 38) —
+                # same raw field, same bundle shape.
+                if not raw and typ in (38, 48, 49) and isinstance(bundle, dict):
                     raw = bundle.get('raw', '')
 
                 # PAR_CLONE_MAP types: cache `data` shape varies per tag,
@@ -213,10 +217,14 @@ def write(listener, infos, bundle, run_on_subthread=True):
                 #                 starting at 1, then B0; card id would corrupt)
                 #
                 # Special-case the writers that strictly need `raw`:
-                # HID, Indala, FDX-B, NEDAP, Paxton Net2, Paxton Switch2.
-                # Paxton: data=10-char Paxton ID (display only), raw=32-char
-                # block 4-7 payload (write payload for write_paxton_blocks()).
-                _RAW_CLONE_PAR_TYPES = {9, 10, 28, 32, 48, 49}  # HID Prox, Indala, FDX-B, NEDAP, Paxton
+                # HID, Indala, FDX-B, NEDAP, Paxton Net2, Paxton Switch2, Hitag2.
+                # Paxton: data=10-char Paxton ID (display only), raw=56-char
+                # pages 1-7 payload (write payload for write_paxton_blocks();
+                # pax->pax uses blocks 4-7, pax->HT2 uses pages 1-7). Legacy
+                # dumps may carry a 32-char blocks 4-7 payload (pax->pax only).
+                # Hitag2 (38): data=UID (display only), raw=56-char pages 1-7
+                # payload (write payload for write_hitag2_blocks()).
+                _RAW_CLONE_PAR_TYPES = {9, 10, 28, 32, 38, 48, 49}  # HID Prox, Indala, FDX-B, NEDAP, Hitag2, Paxton
                 if typ in _RAW_CLONE_PAR_TYPES:
                     raw_par = raw if raw else data
                 elif typ in getattr(lfwrite, 'PAR_CLONE_MAP', {}):

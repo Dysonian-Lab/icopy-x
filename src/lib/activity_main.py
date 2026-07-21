@@ -2668,6 +2668,7 @@ class ReadListActivity(BaseActivity):
         (24, 'EM4305'),
         # Don't add tagtype 49 (switch2) to the readable types — 48 serves both perfectly fine
         (48, 'Paxton Net2/Switch2'),
+        (38, 'Hitag2 ID'),
     ]
 
     def __init__(self, bundle=None):
@@ -6860,6 +6861,7 @@ DUMP_DIRS = {
     'presco': '/mnt/upan/dump/presco/', 'visa2000': '/mnt/upan/dump/visa2000/',
     'nexwatch': '/mnt/upan/dump/nexwatch/',
     'paxton': '/mnt/upan/dump/paxton/',
+    'hitag2': '/mnt/upan/dump/hitag2/',
 }
 
 # Fixed type order from original firmware (QEMU-verified, HANDOVER.md line 77).
@@ -6896,6 +6898,7 @@ DUMP_TYPE_ORDER = [
     ('iClass',             'iclass'),     # 26
     ('EM4X05 ID',          'em4x05'),     # 27
     ('Paxton',              'paxton'),     # 28
+    ('Hitag2 ID',           'hitag2'),     # 29
 ]
 
 
@@ -7106,6 +7109,13 @@ class CardWalletActivity(BaseActivity):
         # Matched before the UID-based regex so an all-decimal Block5 isn't
         # mistaken for the file index.
         m = re.match(r'^Paxton-ID_(.+)_(\d+)$', base)
+        if m:
+            return '%s(%s)' % (m.group(1), m.group(2))
+
+        # Hitag2: {Hitag2}-ID_{UID}_{Block5}_{index} — two identity fields,
+        # same UID_Block5 convention as Paxton. Matched before the UID-based
+        # regex so the hex Block5 isn't mis-parsed as the file index.
+        m = re.match(r'^Hitag2-ID_(.+)_(\d+)$', base)
         if m:
             return '%s(%s)' % (m.group(1), m.group(2))
 
@@ -8063,7 +8073,7 @@ class ReadFromHistoryActivity(BaseActivity):
         'fdx': 28, 'gallagher': 29, 'jablotron': 30, 'keri': 31,
         'nedap': 32, 'noralsy': 33, 'pac': 34, 'paradox': 35,
         'presco': 36, 'visa2000': 37, 'nexwatch': 45, 'hf14a': 44,
-        'paxton': 48,
+        'paxton': 48, 'hitag2': 38,
     }
 
     # dump_type_key -> SIM_MAP index (for sim_for_info)
@@ -8288,7 +8298,8 @@ class ReadFromHistoryActivity(BaseActivity):
         elif dtk in ('em410x', 'hid', 'indala', 'awid', 'fdx', 'viking',
                       'keri', 'pyramid', 'paradox', 'jablotron', 'noralsy',
                       'nexwatch', 'securakey', 'pac', 'gproxii', 'nedap',
-                      'gallagher', 'visa2000', 'presco', 'ioprox', 'paxton'):
+                      'gallagher', 'visa2000', 'presco', 'ioprox', 'paxton',
+                      'hitag2'):
             # info['data'] is the filename-derived identity. For OLD dumps
             # (pre-v2) this is the only source of the display string, so it
             # serves as the backwards-compatible fallback below.

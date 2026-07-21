@@ -1,7 +1,7 @@
 {
     "plugin": true,
     "name": "LF Clone & Pwd",
-    "version": "1.0.0",
+    "version": "2.1.4",
     "initial_state": "info",
     "states": {
         "info": {

@@ -40,11 +40,17 @@ Read strategy (ground truth: lft55xx.py, cmdlft55xx.c):
 
 import re
 
-# Block bounds
-_BLOCK_MAX = 7
+# Block bounds per page
+_BLOCK_MAX = 7          # page 0 -> blocks 0-7 (8 blocks)
+_BLOCK_MAX_PAGE1 = 3    # page 1 -> blocks 0-3 (4 blocks)
 
 # Timeout — 180 seconds covers detect + dump comfortably
 _TIMEOUT_MS = 180000
+
+# Progress checkpoints (0-100)
+_PROG_DETECT = 20
+_PROG_DUMP   = 60
+_PROG_PARSE  = 90
 
 # Detect failure keyword — same as detect plugin ground truth
 _KW_COULD_NOT_DETECT = 'Could not detect modulation automatically'
@@ -84,6 +90,8 @@ class T55xxBlockReaderPlugin(object):
         self.host.set_var('range_end',    '1')
         self.host.set_var('read_mode',    'single')
         self.host.set_var('failed_block', '')
+        self.host.set_var('pwd',          '')
+        self.host.set_progress(0, '')
         _clear_result_lines(self.host)
         return None
 
@@ -92,9 +100,17 @@ class T55xxBlockReaderPlugin(object):
     # ------------------------------------------------------------------
 
     def do_cycle_page(self):
-        """Cycle page_num between 0 and 1."""
+        """Cycle page_num between 0 and 1 (used for both up and down).
+
+        Resets the block/range selection to 0 so a block chosen on page 0
+        (e.g. 7) can never be left out of range when switching to page 1
+        (max 3).
+        """
         current = int(self.host.get_var('page_num', '0'))
         self.host.set_var('page_num', '1' if current == 0 else '0')
+        self.host.set_var('block_num',   '0')
+        self.host.set_var('range_start', '0')
+        self.host.set_var('range_end',   '1')
         self.host.update_screen()
         return None
 
@@ -103,26 +119,51 @@ class T55xxBlockReaderPlugin(object):
         return {'status': 'confirmed'}
 
     # ------------------------------------------------------------------
-    # Block number cycling
+    # Block number cycling — page-aware, wraps in both directions
     # ------------------------------------------------------------------
 
+    def _block_max(self):
+        """Return the highest valid block index for the selected page."""
+        page = int(self.host.get_var('page_num', '0'))
+        return _BLOCK_MAX_PAGE1 if page == 1 else _BLOCK_MAX
+
     def do_cycle(self):
-        """Cycle block_num upward 0-7, wrapping to 0 after 7."""
-        current    = int(self.host.get_var('block_num', '0'))
-        next_block = (current + 1) % (_BLOCK_MAX + 1)
-        self.host.set_var('block_num', str(next_block))
+        """Cycle block_num upward, wrapping to 0 after the page max."""
+        span    = self._block_max() + 1
+        current = int(self.host.get_var('block_num', '0'))
+        self.host.set_var('block_num', str((current + 1) % span))
+        self.host.update_screen()
+        return None
+
+    def do_cycle_down(self):
+        """Cycle block_num downward, wrapping to the page max below 0."""
+        span    = self._block_max() + 1
+        current = int(self.host.get_var('block_num', '0'))
+        self.host.set_var('block_num', str((current - 1) % span))
         self.host.update_screen()
         return None
 
     def do_cycle_end(self):
-        """Cycle block_num for range end — min is range_start+1, wraps at 7."""
+        """Cycle range end upward — min is range_start+1, wraps at page max."""
         start      = int(self.host.get_var('range_start', '0'))
         min_end    = start + 1
         current    = int(self.host.get_var('block_num', str(min_end)))
         next_block = current + 1
-        if next_block > _BLOCK_MAX:
+        if next_block > self._block_max():
             next_block = min_end
         self.host.set_var('block_num', str(next_block))
+        self.host.update_screen()
+        return None
+
+    def do_cycle_end_down(self):
+        """Cycle range end downward — wraps to page max below range_start+1."""
+        start     = int(self.host.get_var('range_start', '0'))
+        min_end   = start + 1
+        current   = int(self.host.get_var('block_num', str(min_end)))
+        prev_block = current - 1
+        if prev_block < min_end:
+            prev_block = self._block_max()
+        self.host.set_var('block_num', str(prev_block))
         self.host.update_screen()
         return None
 
@@ -138,8 +179,8 @@ class T55xxBlockReaderPlugin(object):
     def do_confirm_start(self):
         """Confirm range start block, seed block_num to start+1 for end picker."""
         start = int(self.host.get_var('block_num', '0'))
-        if start > _BLOCK_MAX - 1:
-            start = _BLOCK_MAX - 1
+        if start > self._block_max() - 1:
+            start = self._block_max() - 1
         self.host.set_var('range_start', str(start))
         self.host.set_var('block_num', str(start + 1))
         return {'status': 'confirmed'}
@@ -266,15 +307,18 @@ class T55xxBlockReaderPlugin(object):
         page = int(self.host.get_var('page_num', '0'))
 
         # Step 1 — detect
+        self.host.set_progress(_PROG_DETECT, 'Configuring (detect)...')
         if not self._detect(executor, pwd=pwd, page=page):
             return {'status': 'error'}
 
         # Step 2 — dump all blocks, no file save
+        self.host.set_progress(_PROG_DUMP, 'Reading blocks...')
         blocks = self._dump_all_blocks(executor, pwd=pwd, page=page)
         if not blocks:
             return {'status': 'error'}
 
         # Step 3+4 — slice to range and populate vars
+        self.host.set_progress(_PROG_PARSE, 'Parsing...')
         self._populate_result_vars(blocks, start, end)
 
         # Check if any block in the requested range is missing
@@ -290,20 +334,41 @@ class T55xxBlockReaderPlugin(object):
     # ------------------------------------------------------------------
 
     def do_read(self):
-        """Detect, dump and display requested block(s) without password."""
+        """Detect, dump and display requested block(s) without password.
+
+        reading state on_enter — runs on the progress screen so the
+        set_progress updates in _run_read render live.
+        """
         return self._run_read(pwd=None)
 
     # ------------------------------------------------------------------
     # Read with password
     # ------------------------------------------------------------------
 
-    def do_read_pwd(self):
-        """Capture password from input widget then detect, dump and display.
+    def do_capture_pwd(self):
+        """Capture and validate the password while the input widget is alive.
 
-        Called directly from input_pwd keys so the input widget is
-        still alive when get_input() is called.
+        The actual read runs later on the reading_pwd state (a progress
+        screen), which destroys the input widget, so we grab the value
+        here and store it for do_read_pwd to read back.
         """
         pwd = self.host.get_input().strip().upper()
+        if len(pwd) != 8:
+            return {'status': 'error'}
+        try:
+            int(pwd, 16)
+        except ValueError:
+            return {'status': 'error'}
+        self.host.set_var('pwd', pwd)
+        return {'status': 'captured'}
+
+    def do_read_pwd(self):
+        """Detect, dump and display using the previously captured password.
+
+        reading_pwd state on_enter. The password was validated and stored
+        by do_capture_pwd while the input widget was still alive.
+        """
+        pwd = self.host.get_var('pwd', '')
         if len(pwd) != 8:
             return {'status': 'error'}
         return self._run_read(pwd=pwd)
