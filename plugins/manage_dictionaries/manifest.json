@@ -1,8 +1,8 @@
 {
     "name": "Manage Dictionaries",
-    "version": "1.0.2",
+    "version": "1.0.6",
     "author": "Amec0e",
-    "description": "Load default key/pwd dictionaries to the SD card and append custom keys",
+    "description": "Load, append, back up and clear key/pwd dictionaries (default + learned MF1 user keys)",
     "entry_class": "ManageDictionariesPlugin",
     "permissions": [],
     "order": 9
