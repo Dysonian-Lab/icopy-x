@@ -747,12 +747,13 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         key_max = data.get('keyCountMax', 0)
         progress = data.get('progress', 0)
 
-        # Build timer string — ground truth format from read_tag_reading_2.png:
-        #   "01'08''" (MM'SS'')
+        # Build timer string as MM:SS. (Was "01'08''" per
+        # read_tag_reading_2.png, but the apostrophe form read badly on the
+        # device screen; switched to a clean colon separator.)
         if seconds and int(seconds) > 0:
             mm = int(seconds) // 60
             ss = int(seconds) % 60
-            timer = "%02d'%02d''" % (mm, ss)
+            timer = "%02d:%02d" % (mm, ss)
         else:
             timer = ''
 
