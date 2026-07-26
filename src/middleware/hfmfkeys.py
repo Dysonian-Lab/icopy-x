@@ -77,6 +77,13 @@ TIME_NESTED_ONE = 11
 
 TMP_KEYS_DIR = '/tmp/.keys'
 TMP_KEYS_FILE = '/tmp/.keys/mf_tmp_keys.dic'
+TMP_COMBO_FILE = '/tmp/.keys/mf_combo_keys.dic'
+
+# Live key dictionaries on the SD card.  _USER_DIC accumulates keys recovered
+# by nested/darkside that were NOT in the dictionary, so fchk finds them
+# directly on future reads instead of re-running recovery.
+_SD_DIC = '/mnt/upan/keys/mf1/mfc_default_keys.dic'
+_USER_DIC = '/mnt/upan/keys/mf1/mfc_users_keys.dic'
 
 # ---------------------------------------------------------------------------
 # Default key dictionary (from hfmfkeys_strings.txt lines 3083-3188)
@@ -270,18 +277,85 @@ def keysFromPrintParse(size):
         if res_b == 1 and _RE_HEX_KEY.match(key_b):
             putKey2Map(sector, B, key_b)
 
-def fchks(infos, size, with_call=True):
-    """Fast dictionary key check. PM3: hf mf fchk.
+def _writeComboFile(keys):
+    """Write a key list to the temporary combined dictionary and return it."""
+    init_m1_key_file()
+    try:
+        with open(TMP_COMBO_FILE, 'w') as f:
+            for k in keys:
+                f.write(k + '\n')
+    except (OSError, IOError):
+        pass
+    return TMP_COMBO_FILE
 
-    Key file priority:
-        1. /mnt/upan/keys/mf1/mfc_default_keys.dic — full iceman dictionary
-           on SD card. Most comprehensive, used when available.
-        2. genKeyFile(DEFAULT_KEYS) — hardcoded ~100 key fallback when SD
-           dictionary is absent.
+def _resolveDicFile(uid):
+    """Pick the dictionary file for fchk.
+
+    If the learned user dic (mfc_users_keys.dic) exists, build a fresh combined
+    file with the USER keys first (previously-cracked keys hit fast on repeat
+    cards) followed by DEFAULT_KEYS, de-duplicated. Otherwise DEFAULT_KEYS.
+
+    The full iceman dic (mfc_default_keys.dic) is deliberately NOT used here:
+    crunching ~2500 keys on a problematic card can lock up the device. Normal
+    flows use the small user + DEFAULT_KEYS set (plus iceman's hardcoded 61);
+    the mfc_default_keys.dic is used ONLY to help with savedLeanredKeys()
+    and de-duplicating correctly.
+    """
+    if os.path.exists(_USER_DIC) and os.path.getsize(_USER_DIC) > 0:
+        try:
+            combined = read_keys_of_file(_USER_DIC)          # user keys first
+            default_keys = [k.upper() for k in DEFAULT_KEYS]
+            seen = set(combined)
+            for k in default_keys:                           # then default keys
+                if k not in seen:
+                    combined.append(k)
+                    seen.add(k)
+            if combined:
+                return _writeComboFile(combined)
+        except Exception:
+            pass
+    return genKeyFile(uid, list(DEFAULT_KEYS))
+
+def saveLearnedKeys():
+    """Append any recovered key not already in DEFAULT_KEYS or the user dic to
+    the user dic, so fchk finds it directly next time. No-op when nothing new.
+
+    De-dup is against the SAME small set recovery actually uses (DEFAULT_KEYS +
+    user dic) -- deliberately NOT the full iceman dic (_SD_DIC). That dic is
+    not loaded by normal flow, so if a recovered key lived only there we would
+    otherwise skip learning it and re-run nested for it on every future card.
+    Learning it here lets the user dic grow to match the user's real cards.
+    """
+    found = set(v.upper() for v in KEYS_MAP.values() if v)
+    if not found:
+        return
+    known = set(k.upper() for k in DEFAULT_KEYS)
+    if os.path.exists(_USER_DIC):
+        known |= set(read_keys_of_file(_USER_DIC))
+    new_keys = sorted(found - known)
+    if not new_keys:
+        return
+    try:
+        os.makedirs(os.path.dirname(_USER_DIC), exist_ok=True)
+        with open(_USER_DIC, 'a') as f:
+            for k in new_keys:
+                f.write(k + '\n')
+            f.flush()
+            os.fsync(f.fileno())
+    except (OSError, IOError):
+        pass
+
+def fchks(infos, size, with_call=True):
+    """Dictionary key check. PM3: hf mf fchk.
+
+    Key file priority (see _resolveDicFile):
+        1. mfc_users_keys.dic present -> combined file: user keys first, then
+           mfc_default_keys.dic, de-duplicated.
+        2. mfc_default_keys.dic on SD (no user dic).
+        3. genKeyFile(DEFAULT_KEYS) — hardcoded ~100 key fallback.
     """
     uid = infos.get('uid', '') if isinstance(infos, dict) else ''
-    _SD_DIC = '/mnt/upan/keys/mf1/mfc_default_keys.dic'
-    key_file = _SD_DIC if os.path.exists(_SD_DIC) else genKeyFile(uid, list(DEFAULT_KEYS))
+    key_file = _resolveDicFile(uid)
 
     size_flag = {4096: '--4k', 2048: '--2k', 320: '--mini'}.get(size, '--1k')
     cmd = 'hf mf fchk {} -f {}'.format(size_flag, key_file)
@@ -326,8 +400,38 @@ def onNestedCall(lines):
     """Callback for nested attack progress."""
     pass
 
-def nestedOneKey(known, target, retryMax=5):
-    """Nested attack for a single key.
+def _sectorBlock(sector):
+    """First block of a sector, correct for 1k/2k/4k (4k sectors 32-39 are
+    16 blocks each). Falls back to sector*4 only if mifare is unavailable."""
+    return mifare.sectorToBlock(sector) if mifare else sector * 4
+
+# Keys already fanned across the card this run (see _propagate). Cleared at
+# the start of each nested() run.
+_PROPAGATED = set()
+
+def _propagate(key, size):
+    """Fan a freshly-recovered key across ALL sectors (both A and B).
+
+    Keys are frequently reused across sectors, so a single cheap
+    ``hf mf fchk -k <key>`` (one call tests the key as A and B on every
+    sector) often unlocks more sectors than nested has reached yet, shrinking
+    the remaining work. Best-effort: any failure is swallowed and recovery
+    continues. Each distinct key is propagated at most once per nested() run.
+    """
+    if not key or key in _PROPAGATED:
+        return
+    _PROPAGATED.add(key)
+    size_flag = {4096: '--4k', 2048: '--2k', 320: '--mini'}.get(size, '--1k')
+    try:
+        if executor.startPM3Task('hf mf fchk {} -k {}'.format(size_flag, key),
+                                 600000, rework_max=0) == -1:
+            return
+        keysFromPrintParse(size)
+    except Exception:
+        pass
+
+def nestedOneKey(known, target, size, retryMax=5):
+    """Nested attack for a single key (targeted --tblk form).
 
     Iceman-native emission: ``Target block %4u key type %c -- found valid
     key [ %012X ]`` from /tmp/rrg-pm3/client/src/mifare/mifarehost.c:686
@@ -342,9 +446,11 @@ def nestedOneKey(known, target, retryMax=5):
         return -1
     target_sector = getSectorFromTK(target)
     target_type = getTypeFromTK(target)
-    cmd = 'hf mf nested --1k --blk {} {} -k {} --tblk {} {}'.format(
-        known_sector * 4, '-a' if known_type == 'A' else '-b', known_key,
-        target_sector * 4, '--ta' if target_type == 'A' else '--tb')
+    size_flag = {4096: '--4k', 2048: '--2k', 320: '--mini'}.get(size, '--1k')
+    cmd = 'hf mf nested {} --blk {} {} -k {} --tblk {} {}'.format(
+        size_flag, _sectorBlock(known_sector),
+        '-a' if known_type == 'A' else '-b', known_key,
+        _sectorBlock(target_sector), '--ta' if target_type == 'A' else '--tb')
     ret = executor.startPM3Task(cmd, 30000)
     if ret == -1:
         return -1
@@ -354,12 +460,47 @@ def nestedOneKey(known, target, retryMax=5):
     m = re.search(r'found valid key\s*\[\s*([A-Fa-f0-9]{12})\s*\]',
                   text, re.IGNORECASE)
     if m:
-        putKey2Map(target_sector, target_type, m.group(1).upper())
+        key = m.group(1).upper()
+        putKey2Map(target_sector, target_type, key)
+        _propagate(key, size)
         return 1
     return -1
 
+def nestedFull(known, size):
+    """Full-card nested sweep from one known key.
+
+    PM3: hf mf nested <size> --blk N -a/-b -k KEY  (no --tblk -> recovers
+    every sector from the one seed). Used when fewer than half the keys are
+    known, where a single sweep is cheaper than many targeted runs. Output is
+    the standard printKeyTable, parsed straight into KEYS_MAP.
+    """
+    known_sector = getSectorFromTK(known)
+    known_type = getTypeFromTK(known)
+    known_key = getKey4Map(known_sector, known_type)
+    if not known_key:
+        return -1
+    size_flag = {4096: '--4k', 2048: '--2k', 320: '--mini'}.get(size, '--1k')
+    cmd = 'hf mf nested {} --blk {} {} -k {}'.format(
+        size_flag, _sectorBlock(known_sector),
+        '-a' if known_type == 'A' else '-b', known_key)
+    ret = executor.startPM3Task(cmd, 300000)
+    if ret == -1:
+        return -1
+    keysFromPrintParse(size)
+    # Fan each recovered key across all sectors: reuse is common, so this can
+    # complete sectors the single sweep missed.
+    for k in sorted(set(v.upper() for v in KEYS_MAP.values() if v)):
+        _propagate(k, size)
+    return 1
+
 def nested(size, infos):
-    """Full nested attack for all missing keys."""
+    """Nested attack for missing keys - adaptive (1k/2k/4k).
+
+    >= half the keys known: recover only the missing ones with fast targeted
+    single-key nested (--tblk). < half known: one full-card sweep from the
+    seed key, cheaper than many individual targeted runs.
+    """
+    _PROPAGATED.clear()
     known = getAnyKey()
     if not known:
         return -1
@@ -370,11 +511,20 @@ def nested(size, infos):
             break
     if not known_tk:
         return -1
+
     sc = mifare.getSectorCount(size) if mifare else 16
-    for sector in range(sc):
-        for typ in (A, B):
-            if not getKey4Map(sector, typ):
-                nestedOneKey(known_tk, createTk(sector, typ))
+    total = sc * 2
+    found = sum(1 for v in KEYS_MAP.values() if v)
+
+    if found * 2 < total:
+        # Fewer than half known -> one full-card sweep from the seed.
+        nestedFull(known_tk, size)
+    else:
+        # Half or more known -> targeted recovery of just the missing keys.
+        for sector in range(sc):
+            for typ in (A, B):
+                if not getKey4Map(sector, typ):
+                    nestedOneKey(known_tk, createTk(sector, typ), size)
     return 1
 
 def nestedAllKeys(infos, size):
@@ -401,17 +551,22 @@ def keys(size, infos, listener):
         if hasAllKeys(size):
             return 1
 
-        updateRecovery(RECOVERY_DARK)
-        darkside()
-        updateKeyFound(0)
-        if hasAllKeys(size):
-            return 1
+        # Darkside only when fchk found NOTHING to pivot from.  If we already
+        # have >=1 key, nested can seed from it directly, so skip darkside
+        # entirely (it is the slow / hang-prone stage and exists only to
+        # obtain a first key from scratch).
+        if not getAnyKey():
+            updateRecovery(RECOVERY_DARK)
+            darkside()
+            updateKeyFound(0)
+            if hasAllKeys(size):
+                return 1
 
-        updateRecovery(RECOVERY_FCHK)
-        fchks(infos, size, with_call=False)
-        updateKeyFound(0)
-        if hasAllKeys(size):
-            return 1
+            updateRecovery(RECOVERY_FCHK)
+            fchks(infos, size, with_call=False)
+            updateKeyFound(0)
+            if hasAllKeys(size):
+                return 1
 
         updateRecovery(RECOVERY_NEST)
         nested(size, infos)
@@ -425,6 +580,8 @@ def keys(size, infos, listener):
         return 1 if hasAllKeys(size) else -1
     finally:
         _stop_timer()
+        # Persist any newly recovered (non-dictionary) keys for next time.
+        saveLearnedKeys()
 
 # ---------------------------------------------------------------------------
 # Progress callbacks
