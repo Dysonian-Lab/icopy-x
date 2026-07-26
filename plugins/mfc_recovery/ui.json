@@ -1,0 +1,487 @@
+{
+    "plugin": true,
+    "name": "MFC Recovery",
+    "version": "2.0.0",
+    "initial_state": "main_menu",
+    "states": {
+        "main_menu": {
+            "on_enter": "run:do_init",
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "list",
+                    "items": [
+                        {
+                            "label": "1. Fast (seed + nested)",
+                            "action": "run:do_pick_fast"
+                        },
+                        {
+                            "label": "2. Manual (known key)",
+                            "action": "run:do_pick_manual"
+                        },
+                        {
+                            "label": "3. Full Dict (slow)",
+                            "action": "run:do_pick_fulldict"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Exit",
+                    "right": "Select"
+                },
+                "keys": {
+                    "UP": "scroll:-1",
+                    "DOWN": "scroll:1",
+                    "OK": "select",
+                    "M2": "select",
+                    "M1": "finish"
+                }
+            },
+            "transitions": {
+                "on_result.status==picked": "detecting"
+            }
+        },
+        "detecting": {
+            "on_enter": "run:do_detect",
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==found": "routing",
+                "on_result.status==nocard": "no_card",
+                "on_result.status==unsupported": "unsupported",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "routing": {
+            "on_enter": "run:do_route",
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==fast": "fast_recover",
+                "on_result.status==manual": "block_select",
+                "on_error": "error",
+                "on_result.status==fulldict": "fulldict_recover"
+            }
+        },
+        "fast_recover": {
+            "on_enter": "run:do_fast_recover",
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "done",
+                "on_result.status==seedfail": "seed_fail",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "block_select": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "No dict keys found",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "{size_label} - known block",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "{block_num}",
+                            "size": "xlarge",
+                            "align": "center"
+                        },
+                        {
+                            "text": "UP/DOWN to cycle",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "OK/M2 to confirm",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Confirm"
+                },
+                "keys": {
+                    "UP": "run:do_cycle_up",
+                    "RIGHT": "run:do_cycle_up",
+                    "DOWN": "run:do_cycle_down",
+                    "LEFT": "run:do_cycle_down",
+                    "OK": "run:do_confirm_block",
+                    "M2": "run:do_confirm_block",
+                    "M1": "set_state:main_menu"
+                }
+            },
+            "transitions": {
+                "on_result.status==confirmed": "keytype_select"
+            }
+        },
+        "keytype_select": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Block {block_num}",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Which key do you know?",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "M1/OK = Key A",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "M2 = Key B",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Key A",
+                    "right": "Key B"
+                },
+                "keys": {
+                    "M1": "run:do_pick_key_a",
+                    "OK": "run:do_pick_key_a",
+                    "M2": "run:do_pick_key_b"
+                }
+            },
+            "transitions": {
+                "on_result.status==picked": "input_key"
+            }
+        },
+        "input_key": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Enter known key",
+                    "length": 12,
+                    "placeholder": "FFFFFFFFFFFF"
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Next"
+                },
+                "keys": {
+                    "OK": "run:do_capture_key",
+                    "M2": "run:do_capture_key",
+                    "M1": "set_state:block_select"
+                }
+            },
+            "transitions": {
+                "on_result.status==captured": "confirm",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "confirm": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Ready to recover",
+                            "size": "large",
+                            "align": "center"
+                        },
+                        {
+                            "text": "Card: {size_label}",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "Block {selected_block}  Key {key_type}",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "{seed_key}",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Recover"
+                },
+                "keys": {
+                    "OK": "set_state:recovering_manual",
+                    "M2": "set_state:recovering_manual",
+                    "M1": "set_state:block_select"
+                }
+            }
+        },
+        "recovering_manual": {
+            "on_enter": "run:do_recover_manual",
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "done",
+                "on_result.status==seedfail": "seed_fail",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "done": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Recovered!",
+                            "size": "large",
+                            "align": "center"
+                        },
+                        {
+                            "text": "{key_count}/{total_count} keys ({strategy})",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "Time: {elapsed}s",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "Dump saved:",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": "{dump_file}",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Done",
+                    "right": "Again"
+                },
+                "keys": {
+                    "M1": "finish",
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu"
+                }
+            }
+        },
+        "seed_fail": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Nested failed",
+                            "size": "large",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "No key could seed the attack, or the card is hardened.",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Retry"
+                },
+                "keys": {
+                    "M1": "finish",
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu"
+                }
+            }
+        },
+        "no_card": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "No card found",
+                            "size": "large",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Place a MIFARE Classic card on the antenna and retry.",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Retry"
+                },
+                "keys": {
+                    "M1": "finish",
+                    "OK": "set_state:detecting",
+                    "M2": "set_state:detecting"
+                }
+            }
+        },
+        "unsupported": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Unsupported card",
+                            "size": "large",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "This tool is for MIFARE Classic (mini/1k/2k/4k) only.",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": null
+                },
+                "keys": {
+                    "M1": "finish",
+                    "OK": "set_state:main_menu"
+                }
+            }
+        },
+        "error": {
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Recovery failed",
+                            "size": "large",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Check the card is present and held still, then retry.",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Retry"
+                },
+                "keys": {
+                    "M1": "finish",
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu"
+                }
+            }
+        },
+        "fulldict_recover": {
+            "on_enter": "run:do_fulldict_recover",
+            "screen": {
+                "title": "MFC Recovery",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "done",
+                "on_result.status==seedfail": "seed_fail",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        }
+    }
+}

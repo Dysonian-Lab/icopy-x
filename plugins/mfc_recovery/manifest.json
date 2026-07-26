@@ -1,0 +1,11 @@
+{
+    "name": "MFC Recovery",
+    "version": "2.0.0",
+    "author": "Amec0e",
+    "description": "MIFARE Classic key recovery: Fast (small-dict seed then nested), Manual (enter a known key then nested), or Full Dict (user+default keys prepended to the full iceman dictionary, then nested). Recovered keys propagate across sectors, save to the user dictionary, then the card is dumped.",
+    "entry_class": "MFCRecoveryPlugin",
+    "permissions": [
+        "pm3"
+    ],
+    "order": 10
+}
