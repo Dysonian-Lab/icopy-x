@@ -29,9 +29,10 @@ Two features, chosen from the main menu:
               -> /mnt/upan/keys/t55xx/t55xx_default_pwds.dic
 
 2. Add to Dictionary
-   A picker cycles between "MF1" and "T55xx"; the chosen type routes to a
-   hex input screen (12 hex chars for MFC keys, 8 hex chars for T55xx
-   passwords).  The entered value is appended to the live dictionary:
+   A picker cycles between "MF1", "MF1 User" and "T55xx"; the chosen type
+   routes to a hex input screen (12 hex chars for MFC / user keys, 8 hex
+   chars for T55xx passwords).  The entered value is appended to the live
+   dictionary:
      - strict length + hex validation
      - duplicate keys are skipped (case-insensitive)
      - a single "# iCopy-XS Added Key" header is written above the block
@@ -48,8 +49,14 @@ Two features, chosen from the main menu:
    copied; if neither exists nothing is written.
 
        /mnt/upan/keys/mf1/mfc_default_keys.dic
+       /mnt/upan/keys/mf1/mfc_users_keys.dic
        /mnt/upan/keys/t55xx/t55xx_default_pwds.dic
            -> /mnt/upan/backup_dictionaries/1/<same names>
+
+4. Clear User Keys
+   Deletes the learned-keys dictionary (mfc_users_keys.dic) after showing an
+   information screen with the current key count.  Only the user dic is
+   removed; the default MF1 dic, the T55xx dic and any backups are untouched.
 
 File paths and names are fixed and must not change -- they mirror the
 locations the rest of the firmware reads from (hfmfkeys._SD_DIC and the
@@ -87,6 +94,11 @@ _T55_SRC = os.path.join(_BUNDLED_DIR, 't55xx', 't55xx_default_pwds.dic')
 _T55_DST = '/mnt/upan/keys/t55xx/t55xx_default_pwds.dic'
 _T55_LEN = 8   # T55xx password = 4 bytes = 8 hex chars
 
+# Learned-keys dic: auto-populated by hfmfkeys.saveLearnedKeys(), and manually
+# appendable here.  Same 12-hex format as the MF1 default dic.
+_USER_DST = '/mnt/upan/keys/mf1/mfc_users_keys.dic'
+_USER_LEN = 12
+
 # Comment written once above the block of user-added keys
 _HEADER = '# iCopy-XS Added Key'
 
@@ -97,6 +109,7 @@ _HEX_RE = re.compile(r'^[0-9A-Fa-f]+$')
 _BACKUP_DIR = '/mnt/upan/backup_dictionaries'
 _MFC_NAME = os.path.basename(_MFC_DST)  # mfc_default_keys.dic
 _T55_NAME = os.path.basename(_T55_DST)  # t55xx_default_pwds.dic
+_USER_NAME = os.path.basename(_USER_DST)  # mfc_users_keys.dic
 
 
 class ManageDictionariesPlugin(object):
@@ -115,24 +128,35 @@ class ManageDictionariesPlugin(object):
         return None
 
     def do_cycle_type(self):
-        """Toggle the displayed dictionary type between MF1 and T55xx."""
+        """Cycle the displayed dictionary type: MF1 -> MF1 User -> T55xx."""
+        order = ['MF1', 'MF1 User', 'T55xx']
         current = self.host.get_var('dic_type', 'MF1')
-        self.host.set_var('dic_type', 'T55xx' if current == 'MF1' else 'MF1')
+        try:
+            nxt = order[(order.index(current) + 1) % len(order)]
+        except ValueError:
+            nxt = 'MF1'
+        self.host.set_var('dic_type', nxt)
         self.host.update_screen()
         return None
 
     def do_confirm_type(self):
-        """Route to the correct input screen based on the selected type."""
-        if self.host.get_var('dic_type', 'MF1') == 'MF1':
-            return {'status': 'mfc'}
-        return {'status': 't55xx'}
+        """Route to the correct input screen based on the selected type.
+
+        MF1 and MF1 User are both 12-hex keys, so both route to input_mfc;
+        do_capture_mfc picks the destination dic from dic_type.
+        """
+        if self.host.get_var('dic_type', 'MF1') == 'T55xx':
+            return {'status': 't55xx'}
+        return {'status': 'mfc'}
 
     # ------------------------------------------------------------------
     # Key capture -- read the input widget while it is still alive
     # ------------------------------------------------------------------
 
     def do_capture_mfc(self):
-        """Capture and append an MFC key (12 hex chars)."""
+        """Capture and append a 12-hex key to the selected MF1 dic."""
+        if self.host.get_var('dic_type', 'MF1') == 'MF1 User':
+            return self._capture(_USER_DST, _USER_LEN, 'MF1 User')
         return self._capture(_MFC_DST, _MFC_LEN, 'MF1')
 
     def do_capture_t55xx(self):
@@ -225,10 +249,12 @@ class ManageDictionariesPlugin(object):
             {'status': 'error'} shift/copy failed
         """
         self.host.set_var('backup_mf', '--')
+        self.host.set_var('backup_user', '--')
         self.host.set_var('backup_t55', '--')
 
         present = [
             (_MFC_DST, _MFC_NAME, 'mf'),
+            (_USER_DST, _USER_NAME, 'user'),
             (_T55_DST, _T55_NAME, 't55'),
         ]
         present = [(s, n, tag) for (s, n, tag) in present if os.path.isfile(s)]
@@ -269,6 +295,44 @@ class ManageDictionariesPlugin(object):
             src = os.path.join(_BACKUP_DIR, str(n))
             dst = os.path.join(_BACKUP_DIR, str(n + 1))
             os.rename(src, dst)
+
+    # ------------------------------------------------------------------
+    # Clear user keys (on_enter of clear_info / clearing)
+    # ------------------------------------------------------------------
+
+    def do_clear_info(self):
+        """Count learned keys so the info screen shows what will be cleared."""
+        n = 0
+        try:
+            if os.path.isfile(_USER_DST):
+                with open(_USER_DST, 'r') as f:
+                    for line in f:
+                        t = line.strip()
+                        if len(t) == _USER_LEN and _HEX_RE.match(t) is not None:
+                            n += 1
+        except Exception:
+            n = 0
+        self.host.set_var('clear_count', str(n))
+        return None
+
+    def do_clear(self):
+        """Delete the learned-keys dic (mfc_users_keys.dic).
+
+        Only the user/learned dictionary is removed -- the default MF1 dic,
+        the T55xx dic and any saved backups are never touched.
+
+        Returns:
+            {'status': 'done'}  the user dic was removed
+            {'status': 'empty'} no user dic present -- nothing to clear
+            {'status': 'error'} the file could not be removed
+        """
+        if not os.path.isfile(_USER_DST):
+            return {'status': 'empty'}
+        try:
+            os.remove(_USER_DST)
+        except Exception:
+            return {'status': 'error'}
+        return {'status': 'done'}
 
     # ------------------------------------------------------------------
     # File helpers
