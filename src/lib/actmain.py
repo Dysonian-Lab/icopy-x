@@ -74,6 +74,7 @@ _ACTIVITY_REGISTRY = {
     'lua_script':   ('activity_main',   'LUAScriptCMDActivity'),
     'plugins_menu': ('lib.plugins_menu', 'PluginsMenuActivity'),
     'settings_menu': ('activity_main',  'SettingsMenuActivity'),
+    'iclass_se':    ('activity_main',   'IClassSEActivity'),
 }
 
 # =====================================================================

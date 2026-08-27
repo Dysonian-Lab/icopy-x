@@ -7995,26 +7995,210 @@ class SniffForSpecificTag(BaseActivity):
 
 
 class IClassSEActivity(BaseActivity):
-    """iClass SE key server integration."""
+    """ICS Decoder bridge - read iClass SE card via USB decoder and write to tag.
+
+    States:
+        IDLE:     polling decoder for card
+        WRITING:  writing Blk7 to tag (busy)
+        RESULT:   showing last write result
+    """
+
     ACT_NAME = 'iclass_se'
+    STATE_IDLE = 'idle'
+    STATE_WRITING = 'writing'
+    STATE_RESULT = 'result'
+
     def __init__(self, bundle=None):
+        self._ser = None
+        self._state = self.STATE_IDLE
+        self._poll_timer = None
         self._toast = None
+        self._status_tag = 'iclass_se_status'
+        self._card_tag = 'iclass_se_card'
+        self._write_tag = 'iclass_se_write'
         super().__init__(bundle)
+
     def onCreate(self, bundle):
         self.setTitle(resources.get_str('se_decoder'))
         self.setLeftButton(resources.get_str('back'))
-        self.setRightButton(resources.get_str('start'))
+        self.setRightButton('')
         canvas = self.getCanvas()
         if canvas is None:
             return
+
         self._toast = Toast(canvas)
+
         from lib.widget import BigTextListView
-        BigTextListView(canvas).drawStr(resources.get_str('iclass_se_read_tips'))
+        self._btlv = BigTextListView(canvas)
+        self._btlv.drawStr(resources.get_str('iclass_se_read_tips'))
+
+        try:
+            import ics_decoder
+            self._ser = ics_decoder.detect_decoder()
+        except Exception:
+            self._ser = None
+
+        self._state = self.STATE_IDLE
+        self._draw_status(canvas)
+        self._start_poll()
+
+    def _start_poll(self):
+        try:
+            from lib import actstack
+            if actstack._root is not None:
+                self._poll_timer = actstack._root.after(500, self._poll_decoder)
+        except Exception:
+            pass
+
+    def _stop_poll(self):
+        if self._poll_timer is not None:
+            try:
+                from lib import actstack
+                if actstack._root is not None:
+                    actstack._root.after_cancel(self._poll_timer)
+            except Exception:
+                pass
+            self._poll_timer = None
+
+    def _poll_decoder(self):
+        if self._state == self.STATE_WRITING:
+            self._start_poll()
+            return
+
+        try:
+            import ics_decoder
+            block = ics_decoder.read_card(self._ser)
+        except Exception:
+            block = None
+
+        if block is not None:
+            blk7 = block.get('blk7', '')
+            if blk7:
+                self._state = self.STATE_WRITING
+                self.setbusy()
+                self._last_block = block
+                self._last_write_ok = False
+                self.startBGTask(self._do_write, blk7)
+                self._update_result_display('Writing...')
+            else:
+                self._start_poll()
+        else:
+            self._start_poll()
+
+    def _do_write(self, blk7):
+        try:
+            import ics_decoder
+            ok = ics_decoder.write_to_card(blk7)
+        except Exception:
+            ok = False
+        self._last_write_ok = ok
+        try:
+            from lib import actstack
+            if actstack._root is not None:
+                actstack._root.after(0, self._on_write_done)
+            else:
+                self._on_write_done()
+        except Exception:
+            self._on_write_done()
+
+    def _on_write_done(self):
+        self._state = self.STATE_RESULT
+        self.setidle()
+        ok = getattr(self, '_last_write_ok', False)
+        block = getattr(self, '_last_block', {})
+        if ok:
+            self._update_result_display('Write successful!')
+        else:
+            self._update_result_display('Write failed!')
+        self._draw_card_info(block, ok)
+        self._start_poll()
+
+    def _draw_status(self, canvas):
+        canvas.delete(self._status_tag)
+        if self._ser is not None and getattr(self._ser, 'is_open', False):
+            msg = 'ICS Decoder connected'
+        else:
+            msg = 'No decoder found'
+        canvas.create_text(
+            120, 60,
+            text=msg,
+            fill='#7C829A',
+            font=resources.get_font(14),
+            anchor='center',
+            tags=self._status_tag,
+        )
+
+    def _draw_card_info(self, block, write_ok):
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        canvas.delete(self._card_tag)
+        canvas.delete(self._write_tag)
+
+        fc = block.get('fc', '?')
+        cid = block.get('id', '?')
+        blk7 = block.get('blk7', '?')
+        lines = ['FC: %d  ID: %d' % (fc, cid), 'Blk7: %s' % blk7]
+        y = 90
+        for line in lines:
+            canvas.create_text(
+                120, y,
+                text=line,
+                fill='#000000',
+                font=resources.get_font(13),
+                anchor='center',
+                tags=self._card_tag,
+            )
+            y += 22
+
+        result_text = 'Write: OK' if write_ok else 'Write: FAILED'
+        canvas.create_text(
+            120, y,
+            text=result_text,
+            fill='#006400' if write_ok else '#8B0000',
+            font=resources.get_font(14),
+            anchor='center',
+            tags=self._write_tag,
+        )
+
+    def _update_result_display(self, text):
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        canvas.delete(self._write_tag)
+        canvas.create_text(
+            120, 170,
+            text=text,
+            fill='#006400' if 'OK' in text else '#8B0000',
+            font=resources.get_font(14),
+            anchor='center',
+            tags=self._write_tag,
+        )
+
     def onKeyEvent(self, key):
         if key in (KEY_M1, KEY_PWR):
             if key == KEY_PWR and self._handlePWR():
                 return
             self.finish()
+        elif key in (KEY_M2, KEY_OK):
+            if self._state == self.STATE_RESULT:
+                self._state = self.STATE_IDLE
+                canvas = self.getCanvas()
+                if canvas is not None:
+                    canvas.delete(self._card_tag)
+                    canvas.delete(self._write_tag)
+                self._start_poll()
+
+    def onDestroy(self):
+        self._stop_poll()
+        if self._ser is not None:
+            try:
+                if self._ser.is_open:
+                    self._ser.close()
+            except Exception:
+                pass
+            self._ser = None
+        super().onDestroy()
 
 
 class WearableDeviceActivity(BaseActivity):
