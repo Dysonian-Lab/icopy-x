@@ -427,6 +427,12 @@ def build_ipk(output_path, serial_number="UNIVERSAL", dry_run=False,
     if os.path.exists(app_py):
         _add([(app_py, "app.py")])
 
+    # 0b. ipk_starter.py boot starter (src/ipk_starter.py -> ipk_starter.py)
+    # Handles firmware swap from ipk_app_new to ipk_app_main on boot
+    ipk_starter = os.path.join(REPO_ROOT, "src", "ipk_starter.py")
+    if os.path.exists(ipk_starter):
+        _add([(ipk_starter, "ipk_starter.py")])
+
     # 1. Python UI modules (src/lib/*.py -> lib/*.py)
     _add(collect_py_modules(SRC_LIB))
 
