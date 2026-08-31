@@ -142,6 +142,7 @@ class MainActivity(BaseActivity):
         ("Erase Tag",     "erase",  "erase"),
         ("Time Settings", "time",   "time_settings"),
         ("LUA Script",    "script", "lua_script"),
+        ("ICS Decoder",   "iclass_se", "iclass_se"),
     ]
 
     def __init__(self, bundle=None):

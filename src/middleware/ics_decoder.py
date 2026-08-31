@@ -1,4 +1,4 @@
-"""ics_decoder — ICS Decoder (ATmega32U4) serial bridge.
+"""ics_decoder   ICS Decoder (ATmega32U4) serial bridge.
 
 Bridges the DIY decoder firmware to the existing iCLASS write path.
 Protocol:
