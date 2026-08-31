@@ -28,8 +28,11 @@ qemu_run.sh
 /tmp/
 tests/flows/_results/
 
-# Debug logs
-icopy_debug.log
-.claude/
-.claude/
-.claude/
+# SD card / device dumps (not project files)
+Nanopicontentsfromsdc/
+build_log*.txt
+docker_build*.log
+docker_build*.sh
+fullimage.elf
+ipk_build.log
+proxmark3.exe
