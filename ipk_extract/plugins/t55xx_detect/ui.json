@@ -1,0 +1,190 @@
+{
+    "plugin": true,
+    "name": "T55xx Detect",
+    "version": "1.0.5",
+    "initial_state": "idle",
+    "states": {
+        "idle": {
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Place T55xx on reader",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Detect with password?",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "No Pwd",
+                    "right": "With Pwd"
+                },
+                "keys": {
+                    "OK": "set_state:detecting",
+                    "M1": "set_state:detecting",
+                    "M2": "set_state:input_pwd"
+                }
+            }
+        },
+        "input_pwd": {
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "input_hex",
+                    "label": "Current password",
+                    "length": 8,
+                    "placeholder": "00000000"
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Detect"
+                },
+                "keys": {
+                    "OK": "run:do_capture_pwd",
+                    "M2": "run:do_capture_pwd",
+                    "M1": "set_state:idle"
+                }
+            },
+            "transitions": {
+                "on_result.status==ok": "detecting_pwd",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "detecting_pwd": {
+            "on_enter": "run:do_detect_pwd",
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "result",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "detecting": {
+            "on_enter": "run:do_detect",
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "progress",
+                    "message": "{progress_message}",
+                    "value": "{progress_value}",
+                    "max": 100
+                },
+                "buttons": {
+                    "left": null,
+                    "right": null
+                }
+            },
+            "transitions": {
+                "on_result.status==done": "result",
+                "on_result.status==error": "error",
+                "on_error": "error"
+            }
+        },
+        "result": {
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Chip: {chip}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "Mod:  {modulation}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "Rate: {bitrate}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "Inv:  {inverted}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "B0:   {block0}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "Pwd:  {pwd_set}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "{pwd_line}",
+                            "size": "medium"
+                        },
+                        {
+                            "text": "DL:   {downlink}",
+                            "size": "medium"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Again"
+                },
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        },
+        "error": {
+            "screen": {
+                "title": "T55xx Detect",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "text": "Detect failed",
+                            "size": "medium",
+                            "align": "center"
+                        },
+                        {
+                            "text": ""
+                        },
+                        {
+                            "text": "Is tag pwd bit set?",
+                            "size": "medium",
+                            "align": "center"
+                        }
+                    ]
+                },
+                "buttons": {
+                    "left": "Back",
+                    "right": "Retry"
+                },
+                "keys": {
+                    "OK": "set_state:idle",
+                    "M2": "set_state:idle",
+                    "M1": "finish"
+                }
+            }
+        }
+    }
+}

@@ -7997,25 +7997,34 @@ class SniffForSpecificTag(BaseActivity):
 class IClassSEActivity(BaseActivity):
     """ICS Decoder bridge - read iClass SE card via USB decoder and write to tag.
 
-    States:
-        IDLE:     polling decoder for card
-        WRITING:  writing Blk7 to tag (busy)
-        RESULT:   showing last write result
+    State machine:
+        READING:      polling decoder for source tag
+        WAIT_BLANK:   source decoded, waiting for user to place target blank
+        WRITING:      writing to target tag (busy)
+        RESULT:       showing write result
     """
 
     ACT_NAME = 'iclass_se'
-    STATE_IDLE = 'idle'
+    STATE_READING = 'reading'
+    STATE_WAIT_BLANK = 'wait_blank'
     STATE_WRITING = 'writing'
     STATE_RESULT = 'result'
 
+    # Y-coordinate layout constants for clean rendering
+    _Y_TITLE = 40
+    _Y_STATUS = 70
+    _Y_CARD_START = 100
+    _Y_LINE_HEIGHT = 20
+    _Y_RESULT = 170
+    _Y_PROMPT = 195
+
     def __init__(self, bundle=None):
         self._ser = None
-        self._state = self.STATE_IDLE
+        self._state = self.STATE_READING
         self._poll_timer = None
         self._toast = None
-        self._status_tag = 'iclass_se_status'
-        self._card_tag = 'iclass_se_card'
-        self._write_tag = 'iclass_se_write'
+        self._last_block = None
+        self._last_write_ok = False
         super().__init__(bundle)
 
     def onCreate(self, bundle):
@@ -8028,21 +8037,20 @@ class IClassSEActivity(BaseActivity):
 
         self._toast = Toast(canvas)
 
-        from lib.widget import BigTextListView
-        self._btlv = BigTextListView(canvas)
-        self._btlv.drawStr(resources.get_str('iclass_se_read_tips'))
-
         try:
             import ics_decoder
             self._ser = ics_decoder.detect_decoder()
         except Exception:
             self._ser = None
 
-        self._state = self.STATE_IDLE
-        self._draw_status(canvas)
+        self._state = self.STATE_READING
+        self._render_reading_state()
         self._start_poll()
 
     def _start_poll(self):
+        self._stop_poll()
+        if self._state != self.STATE_READING:
+            return
         try:
             from lib import actstack
             if actstack._root is not None:
@@ -8061,8 +8069,8 @@ class IClassSEActivity(BaseActivity):
             self._poll_timer = None
 
     def _poll_decoder(self):
-        if self._state == self.STATE_WRITING:
-            self._start_poll()
+        self._poll_timer = None
+        if self._state != self.STATE_READING:
             return
 
         try:
@@ -8074,16 +8082,11 @@ class IClassSEActivity(BaseActivity):
         if block is not None:
             blk7 = block.get('blk7', '')
             if blk7:
-                self._state = self.STATE_WRITING
-                self.setbusy()
                 self._last_block = block
-                self._last_write_ok = False
-                self.startBGTask(self._do_write, blk7)
-                self._update_result_display('Writing...')
-            else:
-                self._start_poll()
-        else:
-            self._start_poll()
+                self._state = self.STATE_WAIT_BLANK
+                self._render_wait_blank_state()
+                return
+        self._start_poll()
 
     def _do_write(self, blk7):
         try:
@@ -8104,75 +8107,182 @@ class IClassSEActivity(BaseActivity):
     def _on_write_done(self):
         self._state = self.STATE_RESULT
         self.setidle()
-        ok = getattr(self, '_last_write_ok', False)
-        block = getattr(self, '_last_block', {})
-        if ok:
-            self._update_result_display('Write successful!')
-        else:
-            self._update_result_display('Write failed!')
-        self._draw_card_info(block, ok)
-        self._start_poll()
+        self._render_result_state()
 
-    def _draw_status(self, canvas):
-        canvas.delete(self._status_tag)
-        if self._ser is not None and getattr(self._ser, 'is_open', False):
-            msg = 'ICS Decoder connected'
-        else:
-            msg = 'No decoder found'
-        canvas.create_text(
-            120, 60,
-            text=msg,
-            fill='#7C829A',
-            font=resources.get_font(14),
-            anchor='center',
-            tags=self._status_tag,
-        )
-
-    def _draw_card_info(self, block, write_ok):
+    def _clear_canvas(self):
+        """Clear all ICS Decoder elements from canvas."""
         canvas = self.getCanvas()
         if canvas is None:
             return
-        canvas.delete(self._card_tag)
-        canvas.delete(self._write_tag)
+        for tag in ('_ics_status', '_ics_card_info', '_ics_prompt', '_ics_result'):
+            canvas.delete(tag)
 
+    def _render_reading_state(self):
+        """Render the READING state - waiting for source tag."""
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        self._clear_canvas()
+
+        # Status line
+        if self._ser is not None and getattr(self._ser, 'is_open', False):
+            status_msg = 'ICS Decoder connected'
+            status_color = '#006400'
+        else:
+            status_msg = 'No decoder found'
+            status_color = '#8B0000'
+        canvas.create_text(
+            120, self._Y_STATUS,
+            text=status_msg,
+            fill=status_color,
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_status',
+        )
+
+        # Prompt
+        canvas.create_text(
+            120, self._Y_CARD_START,
+            text='Place source tag',
+            fill='#333333',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_prompt',
+        )
+        canvas.create_text(
+            120, self._Y_CARD_START + self._Y_LINE_HEIGHT,
+            text='on reader...',
+            fill='#333333',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_prompt',
+        )
+
+    def _render_wait_blank_state(self):
+        """Render WAIT_BLANK state - source decoded, waiting for target."""
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        self._clear_canvas()
+
+        # Card info
+        block = self._last_block
         fc = block.get('fc', '?')
         cid = block.get('id', '?')
         blk7 = block.get('blk7', '?')
-        lines = ['FC: %d  ID: %d' % (fc, cid), 'Blk7: %s' % blk7]
-        y = 90
-        for line in lines:
+
+        canvas.create_text(
+            120, self._Y_STATUS,
+            text='Source decoded!',
+            fill='#006400',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_card_info',
+        )
+        y = self._Y_CARD_START
+        for line in ['FC: %s' % fc, 'ID: %s' % cid, 'Blk7: %s' % blk7]:
             canvas.create_text(
                 120, y,
                 text=line,
                 fill='#000000',
                 font=resources.get_font(13),
                 anchor='center',
-                tags=self._card_tag,
+                tags='_ics_card_info',
             )
-            y += 22
+            y += self._Y_LINE_HEIGHT
 
-        result_text = 'Write: OK' if write_ok else 'Write: FAILED'
+        # Prompt
         canvas.create_text(
-            120, y,
-            text=result_text,
-            fill='#006400' if write_ok else '#8B0000',
-            font=resources.get_font(14),
+            120, self._Y_PROMPT,
+            text='Remove source, place target',
+            fill='#333333',
+            font=resources.get_font(13),
             anchor='center',
-            tags=self._write_tag,
+            tags='_ics_prompt',
+        )
+        canvas.create_text(
+            120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
+            text='blank, press OK to write',
+            fill='#333333',
+            font=resources.get_font(13),
+            anchor='center',
+            tags='_ics_prompt',
         )
 
-    def _update_result_display(self, text):
+    def _render_writing_state(self):
+        """Render WRITING state - performing write operation."""
         canvas = self.getCanvas()
         if canvas is None:
             return
-        canvas.delete(self._write_tag)
+        self._clear_canvas()
+
         canvas.create_text(
-            120, 170,
-            text=text,
-            fill='#006400' if 'OK' in text else '#8B0000',
+            120, self._Y_STATUS,
+            text='Writing...',
+            fill='#333333',
             font=resources.get_font(14),
             anchor='center',
-            tags=self._write_tag,
+            tags='_ics_result',
+        )
+        canvas.create_text(
+            120, self._Y_CARD_START,
+            text='Do not move tag!',
+            fill='#8B0000',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_prompt',
+        )
+
+    def _render_result_state(self):
+        """Render RESULT state - showing write result."""
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        self._clear_canvas()
+
+        # Result status
+        ok = self._last_write_ok
+        if ok:
+            result_msg = 'Write successful!'
+            result_color = '#006400'
+        else:
+            result_msg = 'Write failed!'
+            result_color = '#8B0000'
+        canvas.create_text(
+            120, self._Y_STATUS,
+            text=result_msg,
+            fill=result_color,
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_result',
+        )
+
+        # Card info
+        block = getattr(self, '_last_block', {})
+        if block:
+            fc = block.get('fc', '?')
+            cid = block.get('id', '?')
+            blk7 = block.get('blk7', '?')
+            y = self._Y_CARD_START
+            for line in ['FC: %s' % fc, 'ID: %s' % cid, 'Blk7: %s' % blk7]:
+                canvas.create_text(
+                    120, y,
+                    text=line,
+                    fill='#000000',
+                    font=resources.get_font(13),
+                    anchor='center',
+                    tags='_ics_card_info',
+                )
+                y += self._Y_LINE_HEIGHT
+
+        # Prompt
+        canvas.create_text(
+            120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
+            text='Press OK to read again',
+            fill='#333333',
+            font=resources.get_font(13),
+            anchor='center',
+            tags='_ics_prompt',
         )
 
     def onKeyEvent(self, key):
@@ -8180,13 +8290,20 @@ class IClassSEActivity(BaseActivity):
             if key == KEY_PWR and self._handlePWR():
                 return
             self.finish()
-        elif key in (KEY_M2, KEY_OK):
-            if self._state == self.STATE_RESULT:
-                self._state = self.STATE_IDLE
-                canvas = self.getCanvas()
-                if canvas is not None:
-                    canvas.delete(self._card_tag)
-                    canvas.delete(self._write_tag)
+        elif key == KEY_OK:
+            if self._state == self.STATE_WAIT_BLANK:
+                # User confirmed - start write
+                blk7 = self._last_block.get('blk7', '') if self._last_block else ''
+                if blk7:
+                    self._state = self.STATE_WRITING
+                    self.setbusy()
+                    self._render_writing_state()
+                    self.startBGTask(self._do_write, blk7)
+            elif self._state == self.STATE_RESULT:
+                # Reset to read another tag
+                self._state = self.STATE_READING
+                self._last_block = None
+                self._render_reading_state()
                 self._start_poll()
 
     def onDestroy(self):
@@ -8197,7 +8314,6 @@ class IClassSEActivity(BaseActivity):
                     self._ser.close()
             except Exception:
                 pass
-            self._ser = None
         super().onDestroy()
 
 
