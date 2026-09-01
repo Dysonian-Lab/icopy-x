@@ -8149,6 +8149,13 @@ class IClassSEActivity(BaseActivity):
 
         try:
             import ics_decoder
+            # Re-detect target before writing to ensure card is still present
+            self._target_type = ics_decoder.detect_target()
+            if not self._target_type:
+                self._last_write_ok = False
+                self._on_write_done()
+                return
+
             if self._target_type == self.TARGET_LF_T5577:
                 fc = source.get('fc', 0)
                 cid = source.get('id', 0)
@@ -8338,6 +8345,9 @@ class IClassSEActivity(BaseActivity):
         if ok:
             result_msg = 'Write successful!'
             result_color = '#006400'
+        elif self._target_type is None:
+            result_msg = 'No card detected!'
+            result_color = '#8B0000'
         else:
             result_msg = 'Write failed!'
             result_color = '#8B0000'
