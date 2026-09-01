@@ -445,12 +445,12 @@ def detect_target():
 def write_to_t5577(fc, card_id):
     """Write HID Prox credential to T5577 blank.
 
-    Converts FC and Card ID to raw HID Prox 26-bit format (H10301),
-    then clones to T5577 via 'lf hid clone -r <raw_hex>'.
+    Uses lf hid clone -w H10301 to let Proxmark3 handle H10301 framing
+    natively with correct parity bit calculation.
 
     Args:
-        fc: Facility Code (int)
-        card_id: Card ID/Number (int)
+        fc: Facility Code (int, 0-255)
+        card_id: Card ID/Number (int, 0-65535)
 
     Returns:
         True on success, False on failure
@@ -464,31 +464,10 @@ def write_to_t5577(fc, card_id):
             return False
 
     try:
-        raw_hid = _encode_hid_prox_26(fc, card_id)
-        cmd = 'lf hid clone -r {}'.format(raw_hid)
+        cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
         ret = executor.startPM3Task(cmd, timeout=5000)
         return ret != -1
     except Exception:
         return False
 
 
-def _encode_hid_prox_26(fc, card_id):
-    """Encode FC and Card ID to raw HID Prox 26-bit format (H10301).
-
-    HID Prox 26-bit Wiegand format:
-        Bit 0: Even parity (bits 1-13)
-        Bits 1-8: Facility Code (FC)
-        Bits 9-24: Card Number (CN)
-        Bit 25: Odd parity (bits 14-25)
-
-    Args:
-        fc: Facility Code (0-255)
-        card_id: Card Number (0-65535)
-
-    Returns:
-        Hex string of raw 26-bit value (no parity bits, just FC+CN)
-    """
-    fc = int(fc) & 0xFF
-    card_id = int(card_id) & 0xFFFF
-    raw = (fc << 16) | card_id
-    return '{:06X}'.format(raw)
