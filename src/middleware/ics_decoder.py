@@ -442,22 +442,23 @@ def detect_target():
     return None
 
 
-def write_to_t5577(fc, card_id, raw_bits=None):
+def write_to_t5577(fc, card_id):
     """Write HID Prox credential to T5577 blank.
 
     Uses lf hid clone -w H10301 to let Proxmark3 handle H10301 framing
     natively with correct parity bit calculation.
 
-    For non-26-bit formats (fc=0, cn=0), falls back to raw bitstream
-    cloning via lf hid clone -r <shifted_hex> if raw_bits provided.
+    STRICT: Only writes verified 26-bit H10301 frames. Returns False for
+    non-26-bit formats (fc=0, cn=0) — extended/48-bit SEOS payloads are
+    structured for 13.56 MHz HF memory and will produce unreadable 125 kHz
+    LF cards if written to T5577.
 
     Args:
         fc: Facility Code (int, 0-255)
         card_id: Card ID/Number (int, 0-65535)
-        raw_bits: Optional raw shifted hex bitstream for non-26-bit formats
 
     Returns:
-        True on success, False on failure
+        True on success, False on failure or non-26-bit format
     """
     try:
         import executor
@@ -469,12 +470,8 @@ def write_to_t5577(fc, card_id, raw_bits=None):
 
     try:
         if int(fc) == 0 and int(card_id) == 0:
-            if raw_bits:
-                cmd = 'lf hid clone -r {}'.format(raw_bits)
-            else:
-                return False
-        else:
-            cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
+            return False
+        cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
         ret = executor.startPM3Task(cmd, timeout=5000)
         return ret != -1
     except Exception:

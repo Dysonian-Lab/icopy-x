@@ -8037,6 +8037,7 @@ class IClassSEActivity(BaseActivity):
         self._source_data = None
         self._target_type = None
         self._last_write_ok = False
+        self._write_blocked_reason = None
         super().__init__(bundle)
 
     def onCreate(self, bundle):
@@ -8147,6 +8148,10 @@ class IClassSEActivity(BaseActivity):
             self._on_write_done()
             return
 
+        # Stop all polling timers to prevent serial port lock collisions
+        self._stop_poll()
+        self._stop_target_poll()
+
         try:
             import ics_decoder
             # Re-detect target before writing to ensure card is still present
@@ -8156,12 +8161,20 @@ class IClassSEActivity(BaseActivity):
                 self._on_write_done()
                 return
 
+            fc = source.get('fc', 0)
+            cid = source.get('id', 0)
+            is_26bit = ics_decoder.is_valid_26bit(fc, cid)
+
             if self._target_type == self.TARGET_LF_T5577:
-                fc = source.get('fc', 0)
-                cid = source.get('id', 0)
-                raw_bits = source.get('raw', None)
-                ok = ics_decoder.write_to_t5577(fc, cid, raw_bits=raw_bits)
+                if not is_26bit:
+                    self._last_write_ok = False
+                    self._write_blocked_reason = 'non_26bit_lf'
+                    self._on_write_done()
+                    return
+                self._write_blocked_reason = None
+                ok = ics_decoder.write_to_t5577(fc, cid)
             else:
+                self._write_blocked_reason = None
                 blk7 = source.get('blk7', '')
                 ok = ics_decoder.write_to_card(blk7) if blk7 else False
         except Exception:
@@ -8243,13 +8256,18 @@ class IClassSEActivity(BaseActivity):
             return
         self._clear_canvas()
 
-        self.setLeftButton(resources.get_str('back'))
-        self.setRightButton('Write')
-
         block = self._source_data
         fc = block.get('fc', '?')
         cid = block.get('id', '?')
         blk7 = block.get('blk7', '?')
+
+        try:
+            import ics_decoder
+            is_26bit = ics_decoder.is_valid_26bit(fc, cid) if block else True
+        except Exception:
+            is_26bit = True
+
+        self.setLeftButton(resources.get_str('back'))
 
         canvas.create_text(
             120, self._Y_STATUS,
@@ -8272,7 +8290,18 @@ class IClassSEActivity(BaseActivity):
             y += self._Y_LINE_HEIGHT
 
         target_name = self._get_target_display_name()
-        if target_name:
+        if not is_26bit and self._target_type == self.TARGET_LF_T5577:
+            self.setRightButton('')
+            canvas.create_text(
+                120, self._Y_PROMPT,
+                text='Incompatible: Requires HF iClass',
+                fill='#8B0000',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_target',
+            )
+        elif target_name:
+            self.setRightButton('Write')
             canvas.create_text(
                 120, self._Y_PROMPT,
                 text='Target: %s' % target_name,
@@ -8282,23 +8311,29 @@ class IClassSEActivity(BaseActivity):
                 tags='_ics_target',
             )
         else:
+            self.setRightButton('Write' if is_26bit else '')
+            if is_26bit:
+                prompt_text = 'Place blank on coil...'
+            else:
+                prompt_text = 'Place HF iClass blank...'
             canvas.create_text(
                 120, self._Y_PROMPT,
-                text='Place blank on coil...',
+                text=prompt_text,
                 fill='#333333',
                 font=resources.get_font(13),
                 anchor='center',
                 tags='_ics_prompt',
             )
 
-        canvas.create_text(
-            120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='press Write to copy',
-            fill='#333333',
-            font=resources.get_font(13),
-            anchor='center',
-            tags='_ics_prompt',
-        )
+        if is_26bit or self._target_type == self.TARGET_HF_ICLASS:
+            canvas.create_text(
+                120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
+                text='press Write to copy',
+                fill='#333333',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_prompt',
+            )
 
     def _render_writing_state(self):
         canvas = self.getCanvas()
@@ -8345,6 +8380,9 @@ class IClassSEActivity(BaseActivity):
         if ok:
             result_msg = 'Write successful!'
             result_color = '#006400'
+        elif self._write_blocked_reason == 'non_26bit_lf':
+            result_msg = 'Non-26b SIO!'
+            result_color = '#8B0000'
         elif self._target_type is None:
             result_msg = 'No card detected!'
             result_color = '#8B0000'
@@ -8360,22 +8398,32 @@ class IClassSEActivity(BaseActivity):
             tags='_ics_result',
         )
 
-        block = self._source_data
-        if block:
-            fc = block.get('fc', '?')
-            cid = block.get('id', '?')
-            blk7 = block.get('blk7', '?')
-            y = self._Y_CARD_START
-            for line in ['FC: %s' % fc, 'ID: %s' % cid, 'Blk7: %s' % blk7]:
-                canvas.create_text(
-                    120, y,
-                    text=line,
-                    fill='#000000',
-                    font=resources.get_font(13),
-                    anchor='center',
-                    tags='_ics_card_info',
-                )
-                y += self._Y_LINE_HEIGHT
+        if self._write_blocked_reason == 'non_26bit_lf':
+            canvas.create_text(
+                120, self._Y_CARD_START,
+                text='HF iClass Blank Required',
+                fill='#8B0000',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_prompt',
+            )
+        else:
+            block = self._source_data
+            if block:
+                fc = block.get('fc', '?')
+                cid = block.get('id', '?')
+                blk7 = block.get('blk7', '?')
+                y = self._Y_CARD_START
+                for line in ['FC: %s' % fc, 'ID: %s' % cid, 'Blk7: %s' % blk7]:
+                    canvas.create_text(
+                        120, y,
+                        text=line,
+                        fill='#000000',
+                        font=resources.get_font(13),
+                        anchor='center',
+                        tags='_ics_card_info',
+                    )
+                    y += self._Y_LINE_HEIGHT
 
         target_name = self._get_target_display_name()
         if target_name:
