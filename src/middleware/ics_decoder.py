@@ -512,15 +512,28 @@ def detect_target_card():
         for key in ICLASS_KEYS:
             cmd = 'hf iclass rdbl --blk 06 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
-            if ret != -1 and executor.hasKeyword('block'):
-                return True
+            output = executor.getPrintContent()
+            # Check for valid block read (must contain 'block' and hex data)
+            if ret != -1 and output and 'block' in output.lower():
+                # Verify we got actual data, not just an error
+                for line in output.splitlines():
+                    if 'block' in line.lower() and ':' in line:
+                        hex_part = line.split(':', 1)[1].strip()
+                        # Must have hex bytes like '00 00 80 1E C2 00 0A 7A'
+                        if len(hex_part.replace(' ', '')) >= 16:
+                            return True
 
         # Fallback: try Block 0 with each key
         for key in ICLASS_KEYS:
             cmd = 'hf iclass rdbl --blk 00 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
-            if ret != -1 and executor.hasKeyword('block'):
-                return True
+            output = executor.getPrintContent()
+            if ret != -1 and output and 'block' in output.lower():
+                for line in output.splitlines():
+                    if 'block' in line.lower() and ':' in line:
+                        hex_part = line.split(':', 1)[1].strip()
+                        if len(hex_part.replace(' ', '')) >= 16:
+                            return True
 
         return False
     except Exception:
@@ -546,7 +559,18 @@ def detect_t5577():
         ret = executor.startPM3Task(cmd, timeout=5000)
         if ret == -1:
             return False
-        return executor.hasKeyword('T55x7') or executor.hasKeyword('T5577')
+        output = executor.getPrintContent()
+        if not output:
+            return False
+        # Strict check: must explicitly say T55x7 detected, not just keyword match
+        output_lower = output.lower()
+        # Look for positive detection indicators
+        if 't55x7' in output_lower and 'detected' in output_lower:
+            return True
+        # Check for specific T5577 config block pattern
+        if 't5577' in output_lower and ('ok' in output_lower or 'success' in output_lower):
+            return True
+        return False
     except Exception:
         return False
 
