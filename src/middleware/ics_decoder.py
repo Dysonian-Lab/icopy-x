@@ -143,14 +143,14 @@ def detect_decoder():
             _log('DETECT_DECODER port={} response={}'.format(port, line))
             if 'ISE' in line:
                 _log('DETECT_DECODER FOUND {}'.format(port))
-                return ser
+                return ser  # Return OPEN port - do NOT close
         except Exception as e:
             _log('DETECT_DECODER port={} error={}'.format(port, e))
-        finally:
-            try:
-                ser.close()
-            except Exception:
-                pass
+        # Only close on error/failure, not on success
+        try:
+            ser.close()
+        except Exception:
+            pass
 
     _log('DETECT_DECODER: no decoder found')
     return None

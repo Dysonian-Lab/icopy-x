@@ -8013,6 +8013,7 @@ class IClassSEActivity(BaseActivity):
     """
 
     ACT_NAME = 'iclass_se'
+    STATE_DETECTING = 'detecting'
     STATE_READING = 'reading'
     STATE_WAIT_BLANK = 'wait_blank'
     STATE_WRITING = 'writing'
@@ -8053,17 +8054,33 @@ class IClassSEActivity(BaseActivity):
 
         self._toast = Toast(canvas)
 
-        self._state = self.STATE_READING
+        self._state = self.STATE_DETECTING
         self._source_data = None
         self._target_type = None
-        self._render_reading_state()
+        self._ser = None
+        self._render_detecting_state()
 
         # Run decoder detection in background thread to avoid UI blocking
         import threading
         self._detect_thread = threading.Thread(target=self._detect_decoder_bg, daemon=True)
         self._detect_thread.start()
 
-        # Don't start poll timer yet - wait for detection to complete
+    def _render_detecting_state(self):
+        """Render 'Searching for decoder...' state."""
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        self._clear_canvas()
+        self.setLeftButton(resources.get_str('back'))
+        self.setRightButton('')
+        canvas.create_text(
+            120, self._Y_STATUS,
+            text='Searching decoder...',
+            fill='#333333',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_status',
+        )
 
     def _detect_decoder_bg(self):
         """Background thread for decoder detection."""
@@ -8088,15 +8105,46 @@ class IClassSEActivity(BaseActivity):
     def _on_decoder_found(self, ser):
         """Called on main thread after decoder detection completes."""
         try:
+            if ser is None:
+                # No decoder found - show error state
+                self._state = self.STATE_DETECTING
+                self._ser = None
+                self._render_no_decoder_state()
+                return
+
+            # Decoder found - store serial handle and start reading
             self._ser = ser
-            if ser is not None:
-                # Start card polling now that we have a valid port
-                self._start_poll()
-            # Refresh display to show connection status
-            if self._state == self.STATE_READING:
-                self._render_reading_state()
+            self._state = self.STATE_READING
+            self._clear_canvas()
+            self._render_reading_state()
+            self._start_poll()
         except Exception:
             pass
+
+    def _render_no_decoder_state(self):
+        """Render 'No decoder found' state."""
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        self._clear_canvas()
+        self.setLeftButton(resources.get_str('back'))
+        self.setRightButton('')
+        canvas.create_text(
+            120, self._Y_STATUS,
+            text='No decoder found!',
+            fill='#8B0000',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_status',
+        )
+        canvas.create_text(
+            120, self._Y_CARD_START,
+            text='Check USB connection',
+            fill='#333333',
+            font=resources.get_font(13),
+            anchor='center',
+            tags='_ics_prompt',
+        )
 
     def _start_poll(self):
         self._stop_poll()
@@ -8142,7 +8190,8 @@ class IClassSEActivity(BaseActivity):
 
     def _poll_decoder(self):
         self._poll_timer = None
-        if self._state != self.STATE_READING:
+        # Guard: only run if reading AND have valid serial port
+        if self._state != self.STATE_READING or self._ser is None:
             return
 
         try:
