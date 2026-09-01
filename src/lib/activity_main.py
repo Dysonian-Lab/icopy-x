@@ -7999,11 +7999,15 @@ class IClassSEActivity(BaseActivity):
 
     SE-to-Legacy Downgrade Attack:
         Reads Block 7 / PACS data from HID SEOS/SE cards via USB serial decoder,
-        then writes to legacy iClass / Picopass writable blanks via PM3 coil.
+        then writes to legacy iClass/Picopass (HF) or T5577 (LF) blanks via PM3 coil.
+
+    Dual-Frequency Support:
+        HF (13.56 MHz): iClass Legacy / Picopass blanks via iclasswrite
+        LF (125 kHz): T5577 blanks via lf hid clone (HID Prox 26-bit)
 
     State machine:
         READING:      polling USB decoder for source SE tag
-        WAIT_BLANK:   source decoded, waiting for user to place target blank on coil
+        WAIT_BLANK:   source decoded, detecting target blank on coil
         WRITING:      writing to target tag via PM3 (busy)
         RESULT:       showing write result, can retry or scan new card
     """
@@ -8013,6 +8017,9 @@ class IClassSEActivity(BaseActivity):
     STATE_WAIT_BLANK = 'wait_blank'
     STATE_WRITING = 'writing'
     STATE_RESULT = 'result'
+
+    TARGET_HF_ICLASS = 'hf_iclass'
+    TARGET_LF_T5577 = 'lf_t5577'
 
     _Y_TITLE = 40
     _Y_STATUS = 70
@@ -8025,8 +8032,10 @@ class IClassSEActivity(BaseActivity):
         self._ser = None
         self._state = self.STATE_READING
         self._poll_timer = None
+        self._target_poll_timer = None
         self._toast = None
         self._source_data = None
+        self._target_type = None
         self._last_write_ok = False
         super().__init__(bundle)
 
@@ -8048,6 +8057,7 @@ class IClassSEActivity(BaseActivity):
 
         self._state = self.STATE_READING
         self._source_data = None
+        self._target_type = None
         self._render_reading_state()
         self._start_poll()
 
@@ -8072,6 +8082,27 @@ class IClassSEActivity(BaseActivity):
                 pass
             self._poll_timer = None
 
+    def _start_target_poll(self):
+        self._stop_target_poll()
+        if self._state != self.STATE_WAIT_BLANK:
+            return
+        try:
+            from lib import actstack
+            if actstack._root is not None:
+                self._target_poll_timer = actstack._root.after(1000, self._poll_target)
+        except Exception:
+            pass
+
+    def _stop_target_poll(self):
+        if self._target_poll_timer is not None:
+            try:
+                from lib import actstack
+                if actstack._root is not None:
+                    actstack._root.after_cancel(self._target_poll_timer)
+            except Exception:
+                pass
+            self._target_poll_timer = None
+
     def _poll_decoder(self):
         self._poll_timer = None
         if self._state != self.STATE_READING:
@@ -8089,15 +8120,45 @@ class IClassSEActivity(BaseActivity):
                 self._source_data = block
                 self._state = self.STATE_WAIT_BLANK
                 self._render_wait_blank_state()
+                self._start_target_poll()
                 return
         self._start_poll()
 
-    def _do_write(self, blk7):
+    def _poll_target(self):
+        self._target_poll_timer = None
+        if self._state != self.STATE_WAIT_BLANK:
+            return
+
         try:
             import ics_decoder
-            ok = ics_decoder.write_to_card(blk7)
+            self._target_type = ics_decoder.detect_target()
+        except Exception:
+            self._target_type = None
+
+        if self._target_type:
+            self._render_wait_blank_state()
+        else:
+            self._start_target_poll()
+
+    def _do_write(self):
+        source = self._source_data
+        if not source:
+            self._last_write_ok = False
+            self._on_write_done()
+            return
+
+        try:
+            import ics_decoder
+            if self._target_type == self.TARGET_LF_T5577:
+                fc = source.get('fc', 0)
+                cid = source.get('id', 0)
+                ok = ics_decoder.write_to_t5577(fc, cid)
+            else:
+                blk7 = source.get('blk7', '')
+                ok = ics_decoder.write_to_card(blk7) if blk7 else False
         except Exception:
             ok = False
+
         self._last_write_ok = ok
         try:
             from lib import actstack
@@ -8117,8 +8178,15 @@ class IClassSEActivity(BaseActivity):
         canvas = self.getCanvas()
         if canvas is None:
             return
-        for tag in ('_ics_status', '_ics_card_info', '_ics_prompt', '_ics_result'):
+        for tag in ('_ics_status', '_ics_card_info', '_ics_prompt', '_ics_result', '_ics_target'):
             canvas.delete(tag)
+
+    def _get_target_display_name(self):
+        if self._target_type == self.TARGET_HF_ICLASS:
+            return 'iClass Blank'
+        elif self._target_type == self.TARGET_LF_T5577:
+            return 'T5577 (HID Prox)'
+        return None
 
     def _render_reading_state(self):
         canvas = self.getCanvas()
@@ -8195,14 +8263,26 @@ class IClassSEActivity(BaseActivity):
             )
             y += self._Y_LINE_HEIGHT
 
-        canvas.create_text(
-            120, self._Y_PROMPT,
-            text='Place blank on coil',
-            fill='#333333',
-            font=resources.get_font(13),
-            anchor='center',
-            tags='_ics_prompt',
-        )
+        target_name = self._get_target_display_name()
+        if target_name:
+            canvas.create_text(
+                120, self._Y_PROMPT,
+                text='Target: %s' % target_name,
+                fill='#006400',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_target',
+            )
+        else:
+            canvas.create_text(
+                120, self._Y_PROMPT,
+                text='Place blank on coil...',
+                fill='#333333',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_prompt',
+            )
+
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
             text='press Write to copy',
@@ -8221,9 +8301,15 @@ class IClassSEActivity(BaseActivity):
         self.setLeftButton('')
         self.setRightButton('')
 
+        target_name = self._get_target_display_name()
+        if target_name:
+            write_msg = 'Writing %s...' % target_name
+        else:
+            write_msg = 'Writing...'
+
         canvas.create_text(
             120, self._Y_STATUS,
-            text='Writing...',
+            text=write_msg,
             fill='#333333',
             font=resources.get_font(14),
             anchor='center',
@@ -8280,6 +8366,17 @@ class IClassSEActivity(BaseActivity):
                 )
                 y += self._Y_LINE_HEIGHT
 
+        target_name = self._get_target_display_name()
+        if target_name:
+            canvas.create_text(
+                120, self._Y_PROMPT,
+                text='Target: %s' % target_name,
+                fill='#006400',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_target',
+            )
+
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
             text='Retry / Back',
@@ -8296,22 +8393,22 @@ class IClassSEActivity(BaseActivity):
             self.finish()
         elif key in (KEY_OK, KEY_M2):
             if self._state == self.STATE_WAIT_BLANK:
-                blk7 = self._source_data.get('blk7', '') if self._source_data else ''
-                if blk7:
+                if self._source_data:
+                    self._stop_target_poll()
                     self._state = self.STATE_WRITING
                     self.setbusy()
                     self._render_writing_state()
-                    self.startBGTask(self._do_write, blk7)
+                    self.startBGTask(self._do_write)
             elif self._state == self.STATE_RESULT:
-                blk7 = self._source_data.get('blk7', '') if self._source_data else ''
-                if blk7:
+                if self._source_data:
                     self._state = self.STATE_WRITING
                     self.setbusy()
                     self._render_writing_state()
-                    self.startBGTask(self._do_write, blk7)
+                    self.startBGTask(self._do_write)
 
     def onDestroy(self):
         self._stop_poll()
+        self._stop_target_poll()
         if self._ser is not None:
             try:
                 if self._ser.is_open:

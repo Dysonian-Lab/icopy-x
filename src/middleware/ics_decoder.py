@@ -207,14 +207,6 @@ def detect_target_card():
             return False
 
     try:
-        import hficlass
-    except ImportError:
-        try:
-            from . import hficlass
-        except ImportError:
-            return False
-
-    try:
         cmd = 'hf iclass rdbl --blk 00 -k 2020666666668888'
         ret = executor.startPM3Task(cmd, timeout=3000)
         if ret == -1:
@@ -222,3 +214,94 @@ def detect_target_card():
         return executor.hasKeyword('block')
     except Exception:
         return False
+
+
+def detect_t5577():
+    """Detect if a T5577 blank is present on the LF coil.
+
+    Uses lf t55xx detect to check for T5577 card presence.
+    Returns True if T5577 detected, False otherwise.
+    """
+    try:
+        import executor
+    except ImportError:
+        try:
+            from . import executor
+        except ImportError:
+            return False
+
+    try:
+        cmd = 'lf t55xx detect'
+        ret = executor.startPM3Task(cmd, timeout=5000)
+        if ret == -1:
+            return False
+        return executor.hasKeyword('T55x7') or executor.hasKeyword('T5577')
+    except Exception:
+        return False
+
+
+def detect_target():
+    """Detect what type of blank card is on the coil/antenna.
+
+    Returns:
+        'hf_iclass' if iClass/Picopass blank detected (HF 13.56 MHz)
+        'lf_t5577' if T5577 blank detected (LF 125 kHz)
+        None if no supported blank detected
+    """
+    if detect_target_card():
+        return 'hf_iclass'
+    if detect_t5577():
+        return 'lf_t5577'
+    return None
+
+
+def write_to_t5577(fc, card_id):
+    """Write HID Prox credential to T5577 blank.
+
+    Converts FC and Card ID to raw HID Prox 26-bit format (H10301),
+    then clones to T5577 via 'lf hid clone -r <raw_hex>'.
+
+    Args:
+        fc: Facility Code (int)
+        card_id: Card ID/Number (int)
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        import executor
+    except ImportError:
+        try:
+            from . import executor
+        except ImportError:
+            return False
+
+    try:
+        raw_hid = _encode_hid_prox_26(fc, card_id)
+        cmd = 'lf hid clone -r {}'.format(raw_hid)
+        ret = executor.startPM3Task(cmd, timeout=5000)
+        return ret != -1
+    except Exception:
+        return False
+
+
+def _encode_hid_prox_26(fc, card_id):
+    """Encode FC and Card ID to raw HID Prox 26-bit format (H10301).
+
+    HID Prox 26-bit Wiegand format:
+        Bit 0: Even parity (bits 1-13)
+        Bits 1-8: Facility Code (FC)
+        Bits 9-24: Card Number (CN)
+        Bit 25: Odd parity (bits 14-25)
+
+    Args:
+        fc: Facility Code (0-255)
+        card_id: Card Number (0-65535)
+
+    Returns:
+        Hex string of raw 26-bit value (no parity bits, just FC+CN)
+    """
+    fc = int(fc) & 0xFF
+    card_id = int(card_id) & 0xFFFF
+    raw = (fc << 16) | card_id
+    return '{:06X}'.format(raw)
