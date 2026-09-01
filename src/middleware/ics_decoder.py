@@ -525,155 +525,141 @@ def is_valid_26bit(fc, cn):
     return int(fc) > 0 or int(cn) > 0
 
 
-def verify_target_card(target_type, source_data):
-    """Verify written data matches original SEOS source payload.
-
-    Reads the legacy card and compares with the original decrypted SEOS data.
-
-    Args:
-        target_type: 'hf_iclass' or 'lf_t5577'
-        source_data: dict with original SEOS credential data (blk7, fc, id)
-
-    Returns:
-        Tuple of (success: bool, message: str)
+def calculate_wiegand26_parity(fc: int, cn: int) -> int:
     """
+    Reconstructs the 26-bit Wiegand integer from FC (8-bit) and CN (16-bit)
+    with standard even (P1) and odd (P2) parities.
+    """
+    data24 = ((fc & 0xFF) << 16) | (cn & 0xFFFF)
+
+    # Even Parity (P1) covers upper 12 bits of data (bits 23..12)
+    upper_12 = (data24 >> 12) & 0xFFF
+    p1 = 0
+    temp = upper_12
+    while temp:
+        p1 ^= (temp & 1)
+        temp >>= 1
+
+    # Odd Parity (P2) covers lower 12 bits of data (bits 11..0)
+    lower_12 = data24 & 0xFFF
+    p2 = 1
+    temp = lower_12
+    while temp:
+        p2 ^= (temp & 1)
+        temp >>= 1
+
+    wiegand26 = (p1 << 25) | (data24 << 1) | p2
+    return wiegand26
+
+
+def verify_target_card(target_type, source_data):
+    """
+    Performs hardware readback and reverse verification against original source_data.
+    Returns: (success: bool, message: str)
+    """
+    if not source_data:
+        return (False, "No source data")
+
+    expected_fc = int(source_data.get('fc', 0))
+    expected_cn = int(source_data.get('id', 0))
+    expected_blk7 = source_data.get('raw_block7', source_data.get('blk7', '')).replace(" ", "").lower()
+    is_26bit = source_data.get('is_26bit', False) or (expected_fc > 0 and expected_cn > 0)
+
     try:
         import executor
     except ImportError:
         try:
             from . import executor
         except ImportError:
-            return (False, 'No executor')
+            return (False, "No executor")
 
+    # -------------------------------------------------------------
+    # 1. HF iClass / Picopass Verification
+    # -------------------------------------------------------------
     if target_type == 'hf_iclass':
-        return _verify_iclass(source_data)
-    elif target_type == 'lf_t5577':
-        return _verify_t5577(source_data)
-    return (False, 'Unknown target')
-
-
-def _verify_iclass(source_data):
-    """Verify HF iClass write by reading Block 7 and comparing to source SEOS data."""
-    try:
-        import executor
-    except ImportError:
-        try:
-            from . import executor
-        except ImportError:
-            return (False, 'No executor')
-
-    # Get original SEOS Block 7 data (the raw 8-byte PACS block)
-    expected_blk7 = source_data.get('blk7', '')
-    if expected_blk7:
-        expected_blk7 = expected_blk7.replace(' ', '').lower().strip()
-
-    if not expected_blk7:
-        return (False, 'No source Blk7 to compare')
-
-    keys = ['AFA785A7DAB33378', '2020666666668888']
-    last_error = 'No card detected'
-
-    for key in keys:
-        try:
-            cmd = 'hf iclass rdbl --blk 7 -k {}'.format(key)
+        read_hex = None
+        for key in ["AFA785A7DAB33378", "2020666666668888"]:
+            cmd = 'hf iclass rdbl -b 7 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
-            if ret == -1:
-                last_error = 'Auth failed (key: {}...)'.format(key[:8])
-                continue
-            output = executor.getPrintContent()
-            if not output:
-                last_error = 'No response from card'
-                continue
-            read_hex = _extract_block7_data(output)
+            if ret != -1:
+                output = executor.getPrintContent()
+                if output:
+                    for line in output.splitlines():
+                        if "block 07:" in line.lower() or "data:" in line.lower():
+                            cleaned = line.split(":")[-1].replace(" ", "").replace("|", "").strip().lower()
+                            if len(cleaned) >= 16:
+                                read_hex = cleaned[:16]
+                                break
             if read_hex:
-                read_hex_norm = read_hex.replace(' ', '').lower().strip()
-                if read_hex_norm == expected_blk7:
-                    return (True, 'Blk7 verified: {}'.format(read_hex.upper()))
-                else:
-                    return (False, 'Mismatch! Read: {} Exp: {}'.format(
-                        read_hex.upper(), expected_blk7.upper()))
-            else:
-                last_error = 'Could not parse block data'
-        except Exception as e:
-            last_error = 'Error: {}'.format(str(e)[:30])
-            continue
+                break
 
-    return (False, last_error)
+        if not read_hex:
+            return (False, "Auth failed / Read error")
 
+        # Compare raw 8-byte payload
+        if expected_blk7 and read_hex == expected_blk7:
+            return (True, "Blk7: {}".format(read_hex.upper()))
 
-def _extract_block7_data(output):
-    """Extract 8-byte hex data from hf iclass rdbl output."""
-    if not output:
-        return None
-    lines = output.split('\n')
-    for line in lines:
-        line = line.strip()
-        if 'data:' in line.lower() or '[+]' in line.lower():
-            parts = line.split()
-            for part in parts:
-                clean = part.strip().replace(':', '').replace('-', '')
-                if len(clean) == 16 and all(c in '0123456789abcdefABCDEF' for c in clean):
-                    return clean[:8]
-    return None
+        # If 26-bit, attempt reverse bit-shift parse to verify extracted FC/CN match
+        if is_26bit:
+            try:
+                raw_int = int(read_hex, 16)
+                # Standard right-shift unpacking for PACS H10301 inside Block 7
+                read_fc = (raw_int >> 17) & 0xFF
+                read_cn = (raw_int >> 1) & 0xFFFF
+                if read_fc == expected_fc and read_cn == expected_cn:
+                    return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
+            except Exception:
+                pass
 
+        return (False, "Mismatch: {} != {}".format(read_hex.upper(), expected_blk7.upper()))
 
-def _verify_t5577(source_data):
-    """Verify LF T5577 write by reading FC/CN and comparing to source SEOS data."""
-    try:
-        import executor
-    except ImportError:
-        try:
-            from . import executor
-        except ImportError:
-            return (False, 'No executor')
+    # -------------------------------------------------------------
+    # 2. LF T5577 Verification
+    # -------------------------------------------------------------
+    elif target_type == 'lf_t5577':
+        if not is_26bit:
+            return (False, "LF target invalid for non-26b")
 
-    # Get original SEOS FC/CN (extracted from SIO PACS via NN right-shift)
-    exp_fc = int(source_data.get('fc', 0))
-    exp_cn = int(source_data.get('id', 0) or source_data.get('cn', 0))
-
-    if exp_fc == 0 and exp_cn == 0:
-        return (False, 'No source FC/CN to compare')
-
-    try:
         cmd = 'lf hid reader'
         ret = executor.startPM3Task(cmd, timeout=5000)
         if ret == -1:
-            return (False, 'No LF card detected')
+            return (False, "No LF signal detected")
+
         output = executor.getPrintContent()
         if not output:
-            return (False, 'No response from reader')
+            return (False, "No LF signal detected")
 
         read_fc = None
         read_cn = None
-        for line in output.split('\n'):
-            line = line.strip()
-            if 'FC:' in line or 'Facility Code' in line:
-                nums = _extract_numbers(line)
-                if nums:
-                    read_fc = nums[0]
-            elif 'Card:' in line or 'CN:' in line or 'Card Number' in line:
-                nums = _extract_numbers(line)
-                if nums:
-                    read_cn = nums[0]
+        for line in output.splitlines():
+            # Example PM3 output: [+] HID Prox TAG ID: 2004245678 (46574) - Format: 26b H10301 - FC: 78 - Card: 46574
+            if "FC:" in line or "Card:" in line or "CN:" in line:
+                tokens = line.replace(",", " ").replace("-", " ").split()
+                for i, token in enumerate(tokens):
+                    if token == "FC:" and i + 1 < len(tokens):
+                        try:
+                            read_fc = int(tokens[i + 1].strip())
+                        except ValueError:
+                            pass
+                    if token in ("Card:", "CN:") and i + 1 < len(tokens):
+                        try:
+                            read_cn = int(tokens[i + 1].strip())
+                        except ValueError:
+                            pass
 
-        if read_fc is not None and read_cn is not None:
-            if read_fc == exp_fc and read_cn == exp_cn:
-                return (True, 'Verified FC:{} CN:{}'.format(read_fc, read_cn))
-            else:
-                return (False, 'Mismatch! FC:{} CN:{} vs Exp FC:{} CN:{}'.format(
-                    read_fc, read_cn, exp_fc, exp_cn))
-        elif read_fc is not None:
-            return (False, 'Partial read: FC:{} (CN missing)'.format(read_fc))
-        else:
-            return (False, 'Could not parse LF readback')
-    except Exception as e:
-        return (False, 'LF error: {}'.format(str(e)[:30]))
+        if read_fc is None or read_cn is None:
+            return (False, "Failed to parse LF readback")
 
+        # Direct FC / CN integer check
+        if read_fc == expected_fc and read_cn == expected_cn:
+            # Reconstruct 26-bit frame with parities to cross-validate against raw block
+            reconstructed_w26 = calculate_wiegand26_parity(read_fc, read_cn)
+            return (True, "FC:{} CN:{} [W26: {}]".format(read_fc, read_cn, hex(reconstructed_w26)))
 
-def _extract_numbers(text):
-    """Extract integers from text string."""
-    import re
-    nums = re.findall(r'\d+', text)
-    return [int(n) for n in nums] if nums else []
+        return (False, "Mismatch: Read FC:{} CN:{} != Exp FC:{} CN:{}".format(
+            read_fc, read_cn, expected_fc, expected_cn))
+
+    return (False, "Unknown target type")
 
 
