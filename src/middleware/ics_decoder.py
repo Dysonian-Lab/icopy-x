@@ -668,7 +668,7 @@ def verify_target_card(target_type, source_data):
         read_hex = None
         used_key = None
         for key in ["AFA785A7DAB33378", "2020666666668888"]:
-            cmd = 'hf iclass rdbl -b 7 -k {}'.format(key)
+            cmd = 'hf iclass rdbl --blk 7 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
             _log('VERIFY rdbl key={} ret={}'.format(key[:8], ret))
             if ret != -1:
