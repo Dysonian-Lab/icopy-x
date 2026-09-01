@@ -7,7 +7,6 @@ Protocol:
   or                      -> Dev -> Host : ??\r\n  (no card)
 """
 
-import glob
 import os
 import sys
 import time
@@ -32,21 +31,31 @@ _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 3.0
 
-_LOG_PATHS = [
+LOG_PATHS = [
+    '/root/proxmark3/ics_decoder.log',
     '/mnt/sdcard/ics_decoder.log',
-    '/mnt/upan/ics_decoder.log',
+    '/home/pi/ics_decoder.log',
     '/tmp/ics_decoder.log',
 ]
 
 
 def _log(msg):
-    """Write a timestamped log message to file."""
+    """Write timestamped log to file with forced flush."""
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
     line = '[{}] {}\n'.format(ts, msg)
-    for path in _LOG_PATHS:
+    # Always print to stderr for console capture
+    try:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    except Exception:
+        pass
+    # Try each path with forced fsync
+    for path in LOG_PATHS:
         try:
-            with open(path, 'a') as f:
+            with open(path, 'a', encoding='utf-8') as f:
                 f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
             return
         except Exception:
             continue
