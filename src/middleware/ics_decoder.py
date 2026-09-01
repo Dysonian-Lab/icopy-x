@@ -36,12 +36,16 @@ LOG_PATHS = [
     '/root/proxmark3/ics_decoder.log',
     '/mnt/sdcard/ics_decoder.log',
     '/home/pi/ics_decoder.log',
+    '/home/pi/ipk_app_main/ics_decoder.log',
     '/tmp/ics_decoder.log',
 ]
+
+_log_written_to = None
 
 
 def _log(msg):
     """Write timestamped log to file with forced flush."""
+    global _log_written_to
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
     line = '[{}] {}\n'.format(ts, msg)
     # Always print to stderr for console capture
@@ -57,9 +61,18 @@ def _log(msg):
                 f.write(line)
                 f.flush()
                 os.fsync(f.fileno())
+            if _log_written_to != path:
+                _log_written_to = path
             return
         except Exception:
             continue
+    # Last resort: try current directory
+    try:
+        with open('ics_decoder.log', 'a') as f:
+            f.write(line)
+            f.flush()
+    except Exception:
+        pass
 
 
 def _open_serial(port):
@@ -78,7 +91,11 @@ def detect_decoder():
     Returns the serial handle if a device replies with ISE to Who,
     otherwise closes any opened handle and returns None.
     """
+    _log('DETECT_DECODER_START')
+    _log('DECODER_LOG_PATH={}'.format(_log_written_to))
+
     if serial is None:
+        _log('DETECT_DECODER: serial module is None')
         return None
 
     candidates = []
@@ -103,6 +120,8 @@ def detect_decoder():
         seen = set()
         candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
+    _log('DETECT_DECODER candidates={}'.format(candidates))
+
     for port in candidates:
         ser = _open_serial(port)
         if ser is None:
@@ -110,15 +129,18 @@ def detect_decoder():
         try:
             ser.write(_CMD_WHO.encode('utf-8'))
             line = ser.readline().decode('utf-8', errors='ignore').strip()
+            _log('DETECT_DECODER port={} response={}'.format(port, line))
             if 'ISE' in line:
+                _log('DETECT_DECODER FOUND {}'.format(port))
                 return ser
-        except Exception:
-            pass
+        except Exception as e:
+            _log('DETECT_DECODER port={} error={}'.format(port, e))
         try:
             ser.close()
         except Exception:
             pass
 
+    _log('DETECT_DECODER: no decoder found')
     return None
 
 
