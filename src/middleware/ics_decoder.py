@@ -59,13 +59,11 @@ def _log(msg):
         except Exception:
             _log_path_used = None
 
-    # Target the actual exposed PM3 working directories
+    # Target the same dump path used by other processes (t55xx, iclass, hid, etc.)
     candidate_paths = [
-        os.path.join(os.getcwd(), 'dump', 'ics_decoder.log'),
-        os.path.join(os.getcwd(), 'ics_decoder.log'),
-        '/home/pi/proxmark3/client/dump/ics_decoder.log',
-        '/home/pi/proxmark3/client/ics_decoder.log',
-        '/home/pi/ipk_app_main/ics_decoder.log',
+        '/mnt/upan/dump/ics_decoder.log',
+        '/mnt/upan/ics_decoder.log',
+        '/mnt/upan/log.txt',
     ]
 
     for log_file in candidate_paths:
