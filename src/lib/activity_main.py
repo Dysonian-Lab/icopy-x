@@ -8268,6 +8268,7 @@ class IClassSEActivity(BaseActivity):
             is_26bit = True
 
         self.setLeftButton(resources.get_str('back'))
+        self.setRightButton('Write')
 
         canvas.create_text(
             120, self._Y_STATUS,
@@ -8291,7 +8292,6 @@ class IClassSEActivity(BaseActivity):
 
         target_name = self._get_target_display_name()
         if not is_26bit and self._target_type == self.TARGET_LF_T5577:
-            self.setRightButton('')
             canvas.create_text(
                 120, self._Y_PROMPT,
                 text='Incompatible: Requires HF iClass',
@@ -8301,7 +8301,6 @@ class IClassSEActivity(BaseActivity):
                 tags='_ics_target',
             )
         elif target_name:
-            self.setRightButton('Write')
             canvas.create_text(
                 120, self._Y_PROMPT,
                 text='Target: %s' % target_name,
@@ -8311,7 +8310,6 @@ class IClassSEActivity(BaseActivity):
                 tags='_ics_target',
             )
         else:
-            self.setRightButton('Write' if is_26bit else '')
             if is_26bit:
                 prompt_text = 'Place blank on coil...'
             else:
@@ -8325,15 +8323,14 @@ class IClassSEActivity(BaseActivity):
                 tags='_ics_prompt',
             )
 
-        if is_26bit or self._target_type == self.TARGET_HF_ICLASS:
-            canvas.create_text(
-                120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-                text='press Write to copy',
-                fill='#333333',
-                font=resources.get_font(13),
-                anchor='center',
-                tags='_ics_prompt',
-            )
+        canvas.create_text(
+            120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
+            text='press Write to copy',
+            fill='#333333',
+            font=resources.get_font(13),
+            anchor='center',
+            tags='_ics_prompt',
+        )
 
     def _render_writing_state(self):
         canvas = self.getCanvas()
