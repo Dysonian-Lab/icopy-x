@@ -8038,6 +8038,8 @@ class IClassSEActivity(BaseActivity):
         self._target_type = None
         self._last_write_ok = False
         self._write_blocked_reason = None
+        self._verify_success = None
+        self._verify_msg = ''
         super().__init__(bundle)
 
     def onCreate(self, bundle):
@@ -8145,6 +8147,8 @@ class IClassSEActivity(BaseActivity):
         source = self._source_data
         if not source:
             self._last_write_ok = False
+            self._verify_success = None
+            self._verify_msg = ''
             self._on_write_done()
             return
 
@@ -8158,6 +8162,8 @@ class IClassSEActivity(BaseActivity):
             self._target_type = ics_decoder.detect_target()
             if not self._target_type:
                 self._last_write_ok = False
+                self._verify_success = None
+                self._verify_msg = ''
                 self._on_write_done()
                 return
 
@@ -8169,6 +8175,8 @@ class IClassSEActivity(BaseActivity):
                 if not is_26bit:
                     self._last_write_ok = False
                     self._write_blocked_reason = 'non_26bit_lf'
+                    self._verify_success = None
+                    self._verify_msg = ''
                     self._on_write_done()
                     return
                 self._write_blocked_reason = None
@@ -8181,6 +8189,20 @@ class IClassSEActivity(BaseActivity):
             ok = False
 
         self._last_write_ok = ok
+
+        # Post-write verification
+        if ok:
+            try:
+                import ics_decoder
+                self._verify_success, self._verify_msg = ics_decoder.verify_target_card(
+                    self._target_type, source)
+            except Exception:
+                self._verify_success = False
+                self._verify_msg = 'Verify error'
+        else:
+            self._verify_success = None
+            self._verify_msg = ''
+
         try:
             from lib import actstack
             if actstack._root is not None:
@@ -8374,18 +8396,29 @@ class IClassSEActivity(BaseActivity):
         self.setRightButton('Retry')
 
         ok = self._last_write_ok
-        if ok:
-            result_msg = 'Write successful!'
-            result_color = '#006400'
-        elif self._write_blocked_reason == 'non_26bit_lf':
+        blocked = self._write_blocked_reason
+        verify = self._verify_success
+        verify_msg = self._verify_msg
+
+        if blocked == 'non_26bit_lf':
             result_msg = 'Non-26b SIO!'
             result_color = '#8B0000'
         elif self._target_type is None:
             result_msg = 'No card detected!'
             result_color = '#8B0000'
-        else:
-            result_msg = 'Write failed!'
+        elif not ok:
+            result_msg = 'Write Failed!'
             result_color = '#8B0000'
+        elif verify is True:
+            result_msg = 'Write & Verify OK!'
+            result_color = '#006400'
+        elif verify is False:
+            result_msg = 'Verify Mismatch!'
+            result_color = '#8B0000'
+        else:
+            result_msg = 'Write OK'
+            result_color = '#006400'
+
         canvas.create_text(
             120, self._Y_STATUS,
             text=result_msg,
@@ -8395,7 +8428,7 @@ class IClassSEActivity(BaseActivity):
             tags='_ics_result',
         )
 
-        if self._write_blocked_reason == 'non_26bit_lf':
+        if blocked == 'non_26bit_lf':
             canvas.create_text(
                 120, self._Y_CARD_START,
                 text='HF iClass Blank Required',
@@ -8422,16 +8455,26 @@ class IClassSEActivity(BaseActivity):
                     )
                     y += self._Y_LINE_HEIGHT
 
-        target_name = self._get_target_display_name()
-        if target_name:
+        if verify_msg:
             canvas.create_text(
                 120, self._Y_PROMPT,
-                text='Target: %s' % target_name,
-                fill='#006400',
-                font=resources.get_font(13),
+                text=verify_msg,
+                fill=result_color,
+                font=resources.get_font(12),
                 anchor='center',
-                tags='_ics_target',
+                tags='_ics_verify',
             )
+        else:
+            target_name = self._get_target_display_name()
+            if target_name:
+                canvas.create_text(
+                    120, self._Y_PROMPT,
+                    text='Target: %s' % target_name,
+                    fill='#006400',
+                    font=resources.get_font(13),
+                    anchor='center',
+                    tags='_ics_target',
+                )
 
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,

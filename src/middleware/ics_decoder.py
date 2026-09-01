@@ -525,3 +525,138 @@ def is_valid_26bit(fc, cn):
     return int(fc) > 0 or int(cn) > 0
 
 
+def verify_target_card(target_type, source_data):
+    """Verify written data matches source payload.
+
+    Args:
+        target_type: 'hf_iclass' or 'lf_t5577'
+        source_data: dict with source credential data
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        import executor
+    except ImportError:
+        try:
+            from . import executor
+        except ImportError:
+            return (False, 'No executor')
+
+    if target_type == 'hf_iclass':
+        return _verify_iclass(source_data)
+    elif target_type == 'lf_t5577':
+        return _verify_t5577(source_data)
+    return (False, 'Unknown target')
+
+
+def _verify_iclass(source_data):
+    """Verify HF iClass write by reading back Block 7."""
+    try:
+        import executor
+    except ImportError:
+        try:
+            from . import executor
+        except ImportError:
+            return (False, 'No executor')
+
+    expected = source_data.get('raw_block7', source_data.get('blk7', ''))
+    if expected:
+        expected = expected.replace(' ', '').lower().strip()
+
+    keys = ['AFA785A7DAB33378', '2020666666668888']
+
+    for key in keys:
+        try:
+            cmd = 'hf iclass rdbl --blk 7 -k {}'.format(key)
+            ret = executor.startPM3Task(cmd, timeout=3000)
+            if ret == -1:
+                continue
+            output = executor.getPrintContent()
+            if not output:
+                continue
+            read_hex = _extract_block7_data(output)
+            if read_hex:
+                read_hex_norm = read_hex.replace(' ', '').lower().strip()
+                if expected and read_hex_norm == expected:
+                    return (True, 'Blk7: {}'.format(read_hex.upper()))
+                elif expected:
+                    return (False, 'Read: {} != Expected: {}'.format(
+                        read_hex.upper(), expected.upper()))
+                else:
+                    return (True, 'Blk7: {}'.format(read_hex.upper()))
+        except Exception:
+            continue
+
+    return (False, 'Verify read failed')
+
+
+def _extract_block7_data(output):
+    """Extract 8-byte hex data from hf iclass rdbl output."""
+    if not output:
+        return None
+    lines = output.split('\n')
+    for line in lines:
+        line = line.strip()
+        if 'data:' in line.lower() or '[+]' in line.lower():
+            parts = line.split()
+            for part in parts:
+                clean = part.strip().replace(':', '').replace('-', '')
+                if len(clean) == 16 and all(c in '0123456789abcdefABCDEF' for c in clean):
+                    return clean[:8]
+    return None
+
+
+def _verify_t5577(source_data):
+    """Verify LF T5577 write by reading back FC/CN."""
+    try:
+        import executor
+    except ImportError:
+        try:
+            from . import executor
+        except ImportError:
+            return (False, 'No executor')
+
+    exp_fc = int(source_data.get('fc', 0))
+    exp_cn = int(source_data.get('id', 0) or source_data.get('cn', 0))
+
+    try:
+        cmd = 'lf hid reader'
+        ret = executor.startPM3Task(cmd, timeout=5000)
+        if ret == -1:
+            return (False, 'LF read failed')
+        output = executor.getPrintContent()
+        if not output:
+            return (False, 'No LF output')
+
+        read_fc = None
+        read_cn = None
+        for line in output.split('\n'):
+            line = line.strip()
+            if 'FC:' in line or 'Facility Code' in line:
+                nums = _extract_numbers(line)
+                if nums:
+                    read_fc = nums[0]
+            elif 'Card:' in line or 'CN:' in line or 'Card Number' in line:
+                nums = _extract_numbers(line)
+                if nums:
+                    read_cn = nums[0]
+
+        if read_fc is not None and read_cn is not None:
+            if read_fc == exp_fc and read_cn == exp_cn:
+                return (True, 'FC:{} CN:{}'.format(read_fc, read_cn))
+            else:
+                return (False, 'Read FC:{} CN:{} != Exp FC:{} CN:{}'.format(
+                    read_fc, read_cn, exp_fc, exp_cn))
+        return (False, 'Could not parse LF readback')
+    except Exception:
+        return (False, 'LF verify error')
+
+
+def _extract_numbers(text):
+    """Extract integers from text string."""
+    import re
+    nums = re.findall(r'\d+', text)
+    return [int(n) for n in nums] if nums else []
+
+
