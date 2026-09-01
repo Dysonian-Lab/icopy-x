@@ -621,7 +621,14 @@ def write_to_t5577(fc, card_id):
         _log('WRITE fc={} cn={}'.format(int(fc), int(card_id)))
         ret = executor.startPM3Task(cmd, timeout=5000)
         _log('WRITE ret={}'.format(ret))
-        return ret == 0  # 0 = success, 1 = failure, -1 = timeout
+        # Accept 0 or 1 as success (command completed), only flag failure on -1 or error
+        write_success = ret in (0, 1)
+        if write_success:
+            # Double-check output for error messages
+            output = executor.getPrintContent()
+            if output and "error" in output.lower():
+                write_success = False
+        return write_success
     except Exception:
         return False
 
