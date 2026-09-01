@@ -7,6 +7,7 @@ Protocol:
   or                      -> Dev -> Host : ??\r\n  (no card)
 """
 
+import glob
 import os
 import sys
 import time
