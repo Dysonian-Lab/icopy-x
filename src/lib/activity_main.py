@@ -7997,11 +7997,15 @@ class SniffForSpecificTag(BaseActivity):
 class IClassSEActivity(BaseActivity):
     """ICS Decoder bridge - read iClass SE card via USB decoder and write to tag.
 
+    SE-to-Legacy Downgrade Attack:
+        Reads Block 7 / PACS data from HID SEOS/SE cards via USB serial decoder,
+        then writes to legacy iClass / Picopass writable blanks via PM3 coil.
+
     State machine:
-        READING:      polling decoder for source tag
-        WAIT_BLANK:   source decoded, waiting for user to place target blank
-        WRITING:      writing to target tag (busy)
-        RESULT:       showing write result
+        READING:      polling USB decoder for source SE tag
+        WAIT_BLANK:   source decoded, waiting for user to place target blank on coil
+        WRITING:      writing to target tag via PM3 (busy)
+        RESULT:       showing write result, can retry or scan new card
     """
 
     ACT_NAME = 'iclass_se'
@@ -8010,7 +8014,6 @@ class IClassSEActivity(BaseActivity):
     STATE_WRITING = 'writing'
     STATE_RESULT = 'result'
 
-    # Y-coordinate layout constants for clean rendering
     _Y_TITLE = 40
     _Y_STATUS = 70
     _Y_CARD_START = 100
@@ -8023,7 +8026,7 @@ class IClassSEActivity(BaseActivity):
         self._state = self.STATE_READING
         self._poll_timer = None
         self._toast = None
-        self._last_block = None
+        self._source_data = None
         self._last_write_ok = False
         super().__init__(bundle)
 
@@ -8044,6 +8047,7 @@ class IClassSEActivity(BaseActivity):
             self._ser = None
 
         self._state = self.STATE_READING
+        self._source_data = None
         self._render_reading_state()
         self._start_poll()
 
@@ -8082,7 +8086,7 @@ class IClassSEActivity(BaseActivity):
         if block is not None:
             blk7 = block.get('blk7', '')
             if blk7:
-                self._last_block = block
+                self._source_data = block
                 self._state = self.STATE_WAIT_BLANK
                 self._render_wait_blank_state()
                 return
@@ -8110,7 +8114,6 @@ class IClassSEActivity(BaseActivity):
         self._render_result_state()
 
     def _clear_canvas(self):
-        """Clear all ICS Decoder elements from canvas."""
         canvas = self.getCanvas()
         if canvas is None:
             return
@@ -8118,7 +8121,6 @@ class IClassSEActivity(BaseActivity):
             canvas.delete(tag)
 
     def _render_reading_state(self):
-        """Render the READING state - waiting for source tag."""
         canvas = self.getCanvas()
         if canvas is None:
             return
@@ -8127,7 +8129,6 @@ class IClassSEActivity(BaseActivity):
         self.setLeftButton(resources.get_str('back'))
         self.setRightButton('')
 
-        # Status line
         if self._ser is not None and getattr(self._ser, 'is_open', False):
             status_msg = 'ICS Decoder connected'
             status_color = '#006400'
@@ -8143,7 +8144,6 @@ class IClassSEActivity(BaseActivity):
             tags='_ics_status',
         )
 
-        # Prompt
         canvas.create_text(
             120, self._Y_CARD_START,
             text='Place source tag',
@@ -8162,18 +8162,15 @@ class IClassSEActivity(BaseActivity):
         )
 
     def _render_wait_blank_state(self):
-        """Render WAIT_BLANK state - source decoded, waiting for target."""
         canvas = self.getCanvas()
         if canvas is None:
             return
         self._clear_canvas()
 
-        # Show "Write" button so user knows which button to press
         self.setLeftButton(resources.get_str('back'))
         self.setRightButton('Write')
 
-        # Card info
-        block = self._last_block
+        block = self._source_data
         fc = block.get('fc', '?')
         cid = block.get('id', '?')
         blk7 = block.get('blk7', '?')
@@ -8198,10 +8195,9 @@ class IClassSEActivity(BaseActivity):
             )
             y += self._Y_LINE_HEIGHT
 
-        # Prompt
         canvas.create_text(
             120, self._Y_PROMPT,
-            text='Remove source, place target',
+            text='Place blank on coil',
             fill='#333333',
             font=resources.get_font(13),
             anchor='center',
@@ -8209,7 +8205,7 @@ class IClassSEActivity(BaseActivity):
         )
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='blank, press Write to write',
+            text='press Write to copy',
             fill='#333333',
             font=resources.get_font(13),
             anchor='center',
@@ -8217,7 +8213,6 @@ class IClassSEActivity(BaseActivity):
         )
 
     def _render_writing_state(self):
-        """Render WRITING state - performing write operation."""
         canvas = self.getCanvas()
         if canvas is None:
             return
@@ -8244,16 +8239,14 @@ class IClassSEActivity(BaseActivity):
         )
 
     def _render_result_state(self):
-        """Render RESULT state - showing write result."""
         canvas = self.getCanvas()
         if canvas is None:
             return
         self._clear_canvas()
 
         self.setLeftButton(resources.get_str('back'))
-        self.setRightButton('Again')
+        self.setRightButton('Retry')
 
-        # Result status
         ok = self._last_write_ok
         if ok:
             result_msg = 'Write successful!'
@@ -8270,8 +8263,7 @@ class IClassSEActivity(BaseActivity):
             tags='_ics_result',
         )
 
-        # Card info
-        block = getattr(self, '_last_block', {})
+        block = self._source_data
         if block:
             fc = block.get('fc', '?')
             cid = block.get('id', '?')
@@ -8288,10 +8280,9 @@ class IClassSEActivity(BaseActivity):
                 )
                 y += self._Y_LINE_HEIGHT
 
-        # Prompt
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='Press Again to read another',
+            text='Retry / Back',
             fill='#333333',
             font=resources.get_font(13),
             anchor='center',
@@ -8305,19 +8296,19 @@ class IClassSEActivity(BaseActivity):
             self.finish()
         elif key in (KEY_OK, KEY_M2):
             if self._state == self.STATE_WAIT_BLANK:
-                # User confirmed - start write
-                blk7 = self._last_block.get('blk7', '') if self._last_block else ''
+                blk7 = self._source_data.get('blk7', '') if self._source_data else ''
                 if blk7:
                     self._state = self.STATE_WRITING
                     self.setbusy()
                     self._render_writing_state()
                     self.startBGTask(self._do_write, blk7)
             elif self._state == self.STATE_RESULT:
-                # Reset to read another tag
-                self._state = self.STATE_READING
-                self._last_block = None
-                self._render_reading_state()
-                self._start_poll()
+                blk7 = self._source_data.get('blk7', '') if self._source_data else ''
+                if blk7:
+                    self._state = self.STATE_WRITING
+                    self.setbusy()
+                    self._render_writing_state()
+                    self.startBGTask(self._do_write, blk7)
 
     def onDestroy(self):
         self._stop_poll()

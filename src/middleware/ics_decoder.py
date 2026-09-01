@@ -188,3 +188,37 @@ def write_to_card(blk7_hex):
         return ret == 0
     except Exception:
         return False
+
+
+def detect_target_card():
+    """Detect if a writable iClass card is present on the coil.
+
+    Uses hf iclass rdbl to check for card presence (hf iclass info hangs
+    on iCopy-X hardware due to FPGA chip mismatch).
+
+    Returns True if a card is detected, False otherwise.
+    """
+    try:
+        import executor
+    except ImportError:
+        try:
+            from . import executor
+        except ImportError:
+            return False
+
+    try:
+        import hficlass
+    except ImportError:
+        try:
+            from . import hficlass
+        except ImportError:
+            return False
+
+    try:
+        cmd = 'hf iclass rdbl --blk 00 -k 2020666666668888'
+        ret = executor.startPM3Task(cmd, timeout=3000)
+        if ret == -1:
+            return False
+        return executor.hasKeyword('block')
+    except Exception:
+        return False
