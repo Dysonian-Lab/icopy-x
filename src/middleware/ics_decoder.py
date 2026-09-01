@@ -10,6 +10,7 @@ Protocol:
 import glob
 import os
 import sys
+import time
 
 try:
     import serial
@@ -30,6 +31,25 @@ _BAUD_RATE = 115200
 _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 3.0
+
+_LOG_PATHS = [
+    '/mnt/sdcard/ics_decoder.log',
+    '/mnt/upan/ics_decoder.log',
+    '/tmp/ics_decoder.log',
+]
+
+
+def _log(msg):
+    """Write a timestamped log message to file."""
+    ts = time.strftime('%Y-%m-%d %H:%M:%S')
+    line = '[{}] {}\n'.format(ts, msg)
+    for path in _LOG_PATHS:
+        try:
+            with open(path, 'a') as f:
+                f.write(line)
+            return
+        except Exception:
+            continue
 
 
 def _open_serial(port):
@@ -379,17 +399,22 @@ def write_to_card(blk7_hex):
         '2020666666668888',  # Virgin Picopass transport key
     ]
 
+    _log('WRITE blk7={}'.format(blk7_hex))
+
     try:
         se_data = iclasswrite.make_se_data(blk7_hex)
-    except Exception:
+    except Exception as e:
+        _log('WRITE make_se_data error: {}'.format(e))
         return False
 
     for key in ICLASS_KEYS:
         try:
             ret = iclasswrite.writeDataBlocks(17, se_data, key)
+            _log('WRITE key={} ret={}'.format(key[:8], ret))
             if ret == 0:
                 return True
-        except Exception:
+        except Exception as e:
+            _log('WRITE key={} error: {}'.format(key[:8], e))
             continue
 
     return False
@@ -506,7 +531,9 @@ def write_to_t5577(fc, card_id):
         if int(fc) == 0 and int(card_id) == 0:
             return False
         cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
+        _log('WRITE fc={} cn={}'.format(int(fc), int(card_id)))
         ret = executor.startPM3Task(cmd, timeout=5000)
+        _log('WRITE ret={}'.format(ret))
         return ret != -1
     except Exception:
         return False
@@ -565,6 +592,9 @@ def verify_target_card(target_type, source_data):
     expected_blk7 = source_data.get('raw_block7', source_data.get('blk7', '')).replace(" ", "").lower()
     is_26bit = source_data.get('is_26bit', False) or (expected_fc > 0 and expected_cn > 0)
 
+    _log('VERIFY type={} exp_fc={} exp_cn={} exp_blk7={} 26bit={}'.format(
+        target_type, expected_fc, expected_cn, expected_blk7[:16], is_26bit))
+
     try:
         import executor
     except ImportError:
@@ -581,6 +611,7 @@ def verify_target_card(target_type, source_data):
         for key in ["AFA785A7DAB33378", "2020666666668888"]:
             cmd = 'hf iclass rdbl -b 7 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
+            _log('VERIFY rdbl key={} ret={}'.format(key[:8], ret))
             if ret != -1:
                 output = executor.getPrintContent()
                 if output:
@@ -592,6 +623,8 @@ def verify_target_card(target_type, source_data):
                                 break
             if read_hex:
                 break
+
+        _log('VERIFY read_hex={}'.format(read_hex))
 
         if not read_hex:
             return (False, "Auth failed")
@@ -606,6 +639,7 @@ def verify_target_card(target_type, source_data):
                 raw_int = int(read_hex, 16)
                 read_fc = (raw_int >> 17) & 0xFF
                 read_cn = (raw_int >> 1) & 0xFFFF
+                _log('VERIFY read_fc={} read_cn={}'.format(read_fc, read_cn))
                 if read_fc == expected_fc and read_cn == expected_cn:
                     return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
                 else:
@@ -625,6 +659,7 @@ def verify_target_card(target_type, source_data):
 
         cmd = 'lf hid reader'
         ret = executor.startPM3Task(cmd, timeout=5000)
+        _log('VERIFY lf_hid ret={}'.format(ret))
         if ret == -1:
             return (False, "No LF signal")
 
@@ -648,6 +683,8 @@ def verify_target_card(target_type, source_data):
                             read_cn = int(tokens[i + 1].strip())
                         except ValueError:
                             pass
+
+        _log('VERIFY read_fc={} read_cn={}'.format(read_fc, read_cn))
 
         if read_fc is None or read_cn is None:
             return (False, "Failed to parse LF")
