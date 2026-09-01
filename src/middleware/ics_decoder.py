@@ -365,23 +365,41 @@ def write_to_card(blk7_hex):
     """Write SE data derived from Blk7 to an iClass tag.
 
     Uses iclasswrite.make_se_data + writeDataBlocks with ICLASS_LEGACY (17).
+    Tries multiple keys to support both virgin Picopass blanks and formatted
+    HID iClass cards.
+
     Returns True on success (ret == 0), False otherwise.
     """
     if iclasswrite is None:
         return False
+
+    # Standard HID iClass keys to try (in order of likelihood)
+    ICLASS_KEYS = [
+        'AFA785A7DAB33378',  # Standard HID iClass key (formatted cards)
+        '2020666666668888',  # Virgin Picopass transport key
+    ]
+
     try:
         se_data = iclasswrite.make_se_data(blk7_hex)
-        ret = iclasswrite.writeDataBlocks(17, se_data, '2020666666668888')
-        return ret == 0
     except Exception:
         return False
+
+    for key in ICLASS_KEYS:
+        try:
+            ret = iclasswrite.writeDataBlocks(17, se_data, key)
+            if ret == 0:
+                return True
+        except Exception:
+            continue
+
+    return False
 
 
 def detect_target_card():
     """Detect if a writable iClass card is present on the coil.
 
-    Uses hf iclass rdbl to check for card presence (hf iclass info hangs
-    on iCopy-X hardware due to FPGA chip mismatch).
+    Uses multi-key support to handle both virgin Picopass blanks (transport
+    key) and formatted HID iClass cards (standard HID key).
 
     Returns True if a card is detected, False otherwise.
     """
@@ -394,11 +412,27 @@ def detect_target_card():
             return False
 
     try:
-        cmd = 'hf iclass rdbl --blk 00 -k 2020666666668888'
-        ret = executor.startPM3Task(cmd, timeout=3000)
-        if ret == -1:
-            return False
-        return executor.hasKeyword('block')
+        # Standard HID iClass keys to try (in order of likelihood)
+        ICLASS_KEYS = [
+            'AFA785A7DAB33378',  # Standard HID iClass key (formatted cards)
+            '2020666666668888',  # Virgin Picopass transport key
+        ]
+
+        # Try authenticated read with each key on Block 6/7 (application area)
+        for key in ICLASS_KEYS:
+            cmd = 'hf iclass rdbl --blk 06 -k {}'.format(key)
+            ret = executor.startPM3Task(cmd, timeout=3000)
+            if ret != -1 and executor.hasKeyword('block'):
+                return True
+
+        # Fallback: try Block 0 with each key
+        for key in ICLASS_KEYS:
+            cmd = 'hf iclass rdbl --blk 00 -k {}'.format(key)
+            ret = executor.startPM3Task(cmd, timeout=3000)
+            if ret != -1 and executor.hasKeyword('block'):
+                return True
+
+        return False
     except Exception:
         return False
 
