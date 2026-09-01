@@ -670,18 +670,18 @@ def verify_target_card(target_type, source_data):
         for key in ["AFA785A7DAB33378", "2020666666668888"]:
             cmd = 'hf iclass rdbl --blk 7 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
+            output = executor.getPrintContent()
             _log('VERIFY rdbl key={} ret={}'.format(key[:8], ret))
-            if ret != -1:
-                output = executor.getPrintContent()
-                _log('VERIFY output={}'.format(output[:100] if output else 'None'))
-                if output:
-                    for line in output.splitlines():
-                        if "block 07:" in line.lower() or "data:" in line.lower():
-                            cleaned = line.split(":")[-1].replace(" ", "").replace("|", "").strip().lower()
-                            if len(cleaned) >= 16:
-                                read_hex = cleaned[:16]
-                                used_key = key
-                                break
+            _log('VERIFY output={}'.format(output[:120] if output else 'None'))
+            if output:
+                for line in output.splitlines():
+                    if "block" in line.lower() and ":" in line:
+                        raw_bytes = line.split(":", 1)[1].strip()
+                        cleaned = raw_bytes.replace(" ", "").replace("\t", "").strip().lower()
+                        if len(cleaned) == 16:
+                            read_hex = cleaned
+                            used_key = key
+                            break
             if read_hex:
                 break
 
