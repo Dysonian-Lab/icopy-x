@@ -59,43 +59,26 @@ def _log(msg):
         except Exception:
             _log_path_used = None
 
-    # Try multiple paths
-    paths_to_try = [
-        '/root/proxmark3/ics_decoder.log',
-        '/mnt/sdcard/ics_decoder.log',
-        '/home/pi/ics_decoder.log',
+    # Target the actual exposed PM3 working directories
+    candidate_paths = [
+        os.path.join(os.getcwd(), 'dump', 'ics_decoder.log'),
+        os.path.join(os.getcwd(), 'ics_decoder.log'),
+        '/home/pi/proxmark3/client/dump/ics_decoder.log',
+        '/home/pi/proxmark3/client/ics_decoder.log',
         '/home/pi/ipk_app_main/ics_decoder.log',
-        '/tmp/ics_decoder.log',
-        '/mnt/upan/ics_decoder.log',
-        '/data/ics_decoder.log',
     ]
 
-    # Also try current working directory
-    try:
-        cwd = os.getcwd()
-        paths_to_try.append(os.path.join(cwd, 'ics_decoder.log'))
-    except Exception:
-        pass
-
-    for path in paths_to_try:
+    for log_file in candidate_paths:
         try:
-            with open(path, 'a', encoding='utf-8') as f:
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            with open(log_file, 'a', encoding='utf-8') as f:
                 f.write(line)
                 f.flush()
                 os.fsync(f.fileno())
-            _log_path_used = path
+            _log_path_used = log_file
             return
         except Exception:
             continue
-
-    # Last resort - try to write to cwd with just filename
-    try:
-        with open('ics_decoder.log', 'a') as f:
-            f.write(line)
-            f.flush()
-        _log_path_used = os.path.join(os.getcwd(), 'ics_decoder.log')
-    except Exception:
-        pass
 
 
 def _open_serial(port):
