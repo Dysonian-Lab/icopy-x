@@ -30,7 +30,7 @@ except ImportError:
 _BAUD_RATE = 115200
 _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
-_READLINE_TIMEOUT = 1.0  # Balanced: reliable decode, no UI blocking
+_READLINE_TIMEOUT = 1.2  # USB CDC ACM needs >=1.0s for reliable WHO response
 
 _log_path_used = None
 _log_dir = '/mnt/upan/dump/ics_decoder'

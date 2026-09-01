@@ -8053,17 +8053,38 @@ class IClassSEActivity(BaseActivity):
 
         self._toast = Toast(canvas)
 
-        try:
-            import ics_decoder
-            self._ser = ics_decoder.detect_decoder()
-        except Exception:
-            self._ser = None
-
         self._state = self.STATE_READING
         self._source_data = None
         self._target_type = None
         self._render_reading_state()
+
+        # Run decoder detection in background thread to avoid UI blocking
+        import threading
+        self._detect_thread = threading.Thread(target=self._detect_decoder_bg, daemon=True)
+        self._detect_thread.start()
+
         self._start_poll()
+
+    def _detect_decoder_bg(self):
+        """Background thread for decoder detection."""
+        try:
+            import ics_decoder
+            ser = ics_decoder.detect_decoder()
+            # Pass result back to main thread
+            from lib import actstack
+            if actstack._root is not None:
+                actstack._root.after(0, self._on_decoder_found, ser)
+            else:
+                self._on_decoder_found(ser)
+        except Exception:
+            self._on_decoder_found(None)
+
+    def _on_decoder_found(self, ser):
+        """Called on main thread after decoder detection completes."""
+        self._ser = ser
+        # Refresh display to show connection status
+        if self._state == self.STATE_READING:
+            self._render_reading_state()
 
     def _start_poll(self):
         self._stop_poll()
@@ -8607,6 +8628,12 @@ class IClassSEActivity(BaseActivity):
     def onDestroy(self):
         self._stop_poll()
         self._stop_target_poll()
+        # Wait for detection thread to complete if still running
+        if hasattr(self, '_detect_thread') and self._detect_thread is not None:
+            try:
+                self._detect_thread.join(timeout=2.0)
+            except Exception:
+                pass
         if self._ser is not None:
             try:
                 if self._ser.is_open:
