@@ -442,15 +442,19 @@ def detect_target():
     return None
 
 
-def write_to_t5577(fc, card_id):
+def write_to_t5577(fc, card_id, raw_bits=None):
     """Write HID Prox credential to T5577 blank.
 
     Uses lf hid clone -w H10301 to let Proxmark3 handle H10301 framing
     natively with correct parity bit calculation.
 
+    For non-26-bit formats (fc=0, cn=0), falls back to raw bitstream
+    cloning via lf hid clone -r <shifted_hex> if raw_bits provided.
+
     Args:
         fc: Facility Code (int, 0-255)
         card_id: Card ID/Number (int, 0-65535)
+        raw_bits: Optional raw shifted hex bitstream for non-26-bit formats
 
     Returns:
         True on success, False on failure
@@ -464,10 +468,29 @@ def write_to_t5577(fc, card_id):
             return False
 
     try:
-        cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
+        if int(fc) == 0 and int(card_id) == 0:
+            if raw_bits:
+                cmd = 'lf hid clone -r {}'.format(raw_bits)
+            else:
+                return False
+        else:
+            cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
         ret = executor.startPM3Task(cmd, timeout=5000)
         return ret != -1
     except Exception:
         return False
+
+
+def is_valid_26bit(fc, cn):
+    """Check if extracted FC/CN represent a valid 26-bit Wiegand frame.
+
+    Args:
+        fc: Facility Code
+        cn: Card Number
+
+    Returns:
+        True if valid 26-bit format (fc > 0 or cn > 0)
+    """
+    return int(fc) > 0 or int(cn) > 0
 
 

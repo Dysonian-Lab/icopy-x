@@ -8152,7 +8152,8 @@ class IClassSEActivity(BaseActivity):
             if self._target_type == self.TARGET_LF_T5577:
                 fc = source.get('fc', 0)
                 cid = source.get('id', 0)
-                ok = ics_decoder.write_to_t5577(fc, cid)
+                raw_bits = source.get('raw', None)
+                ok = ics_decoder.write_to_t5577(fc, cid, raw_bits=raw_bits)
             else:
                 blk7 = source.get('blk7', '')
                 ok = ics_decoder.write_to_card(blk7) if blk7 else False
