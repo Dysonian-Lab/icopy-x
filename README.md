@@ -48,6 +48,17 @@ The ICS Decoder integration bridges an external USB ICS Decoder dongle to the iC
 
 ## Hardware Requirements
 
+### ICS Decoder Dongle
+
+**Required:** External USB ICS Decoder dongle for SEOS credential extraction.
+
+| Decoder | Status | Repository |
+|---------|--------|------------|
+| DIY ICS Decoder | ✅ Tested & Working | [Dysonian-Lab/icopy-x-ics-decoder](https://github.com/Dysonian-Lab/icopy-x-ics-decoder) |
+| Nikola ICS Decoder | ⏳ Testing Pending | [Dysonian-Lab/icopy-x-ics-decoder](https://github.com/Dysonian-Lab/icopy-x-ics-decoder) |
+
+> **Note:** This integration has only been tested with the DIY ICS Decoder hardware. Testing with the Nikola ICS Decoder is yet to be completed. See the [device repository](https://github.com/Dysonian-Lab/icopy-x-ics-decoder) for build instructions and compatibility updates.
+
 ### Supported Target Blanks
 
 | Target | Frequency | Card Types | Detection | Write Method |
@@ -297,7 +308,7 @@ Once your device is reflashed and booting, you can apply the Open Source IPKs.
   - Original iCopy-X Gen1a tags appear to be undetectable. __This is not a bug!__ Curiously, for some reason - the device's read range is enhanced on iceman's release. You may need to have a gap of up to 2cm above the device for stable reading! Anything closer over saturates the reader/tag.
 - "Flash" version is built directly from the latest tagged release of the iceman repo. If an update changes command syntax or responses, this will break functionality on the iCopy-X device. Our goal was to get the device running on latest iceman. There's a full CI/CD build pipeline, allowing you to mix and match your own proxmark versions. However keeping the iCopy-X's compatibility layer mapped to changes in the iceman repo is up to the community.
 - "Flow Tests" - the backbone of this project - are not passing as of the official release. After the project got 1:1 parity with the original middleware, these decoupled. In an ideal world - these should be made to work (and also be made to mock the iceman firmware+client responses). They're an excellent tool for ensuring stability across the entire codebase.
-- **ICS Decoder**: Requires external USB ICS Decoder dongle (sold separately). Some SEOS card formats may require specific decoder firmware versions.
+- **ICS Decoder**: Requires external USB ICS Decoder dongle. Currently only tested with the [DIY ICS Decoder](https://github.com/Dysonian-Lab/icopy-x-ics-decoder). Nikola ICS Decoder compatibility testing is pending.
 
 ## Disclaimer
 
@@ -315,7 +326,8 @@ Some suggestions would be:
 
  - Integrate 4+ years of iceman repo functions, tag types and progress into the UI
  - Integrate new magic cards
- - Expand ICS Decoder support for additional SEOS card formats
+  - Expand ICS Decoder support for additional SEOS card formats
+  - Complete Nikola ICS Decoder compatibility testing
 
 # Licence
 
