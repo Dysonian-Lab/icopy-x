@@ -368,7 +368,7 @@ def _generate_build_version(version_override=None):
     Priority:
         1. Explicit --version flag (e.g. "v0.6.1" from CI release)
         2. ICOPYX_VERSION env var (for CI/CD pipelines)
-        3. Auto-generated: YYMMDD-H.M-Int (local dev build)
+        3. Auto-generated: short version string (local dev build)
 
     Returns:
         str: version string
@@ -378,8 +378,7 @@ def _generate_build_version(version_override=None):
     env_ver = os.environ.get('ICOPYX_VERSION', '')
     if env_ver:
         return env_ver
-    now = datetime.now(timezone.utc)
-    return now.strftime("%y%m%d-%H.%M-Int")
+    return "v1.0-ICS"
 
 
 def build_ipk(output_path, serial_number="UNIVERSAL", dry_run=False,
