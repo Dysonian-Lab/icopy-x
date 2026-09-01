@@ -8583,16 +8583,25 @@ class IClassSEActivity(BaseActivity):
             )
 
     def onKeyEvent(self, key):
+        # Power button always works - finish activity immediately
         if key == KEY_PWR:
             if self._handlePWR():
                 return
             self.finish()
-        elif key == KEY_M1:
+            return
+
+        # Back button (M1) - behavior depends on state
+        if key == KEY_M1:
             if self._state == self.STATE_RESULT:
+                # In result state, M1 triggers verify
                 self._do_verify()
             else:
+                # In all other states, M1 goes back
                 self.finish()
-        elif key in (KEY_OK, KEY_M2):
+            return
+
+        # Write/Retry button (M2/OK)
+        if key in (KEY_OK, KEY_M2):
             if self._state == self.STATE_WAIT_BLANK:
                 if self._source_data:
                     self._stop_target_poll()
@@ -8689,18 +8698,21 @@ class IClassSEActivity(BaseActivity):
     def onDestroy(self):
         self._stop_poll()
         self._stop_target_poll()
-        # Wait for detection thread to complete if still running
-        if hasattr(self, '_detect_thread') and self._detect_thread is not None:
+        # Do NOT block on thread.join() - daemon threads die automatically
+        # Close serial port without blocking (OS will clean up if we don't)
+        if self._ser is not None:
             try:
-                self._detect_thread.join(timeout=2.0)
+                # Cancel any pending operations
+                self._ser.cancel_read()
+                self._ser.cancel_write()
             except Exception:
                 pass
-        if self._ser is not None:
             try:
                 if self._ser.is_open:
                     self._ser.close()
             except Exception:
                 pass
+            self._ser = None
         super().onDestroy()
 
 

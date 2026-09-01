@@ -562,14 +562,13 @@ def detect_t5577():
         output = executor.getPrintContent()
         if not output:
             return False
-        # Strict check: must explicitly say T55x7 detected, not just keyword match
+        # Check for T55x7 chip type in output
+        # Typical output: "[+] Chip type: T55x7" or similar
         output_lower = output.lower()
-        # Look for positive detection indicators
-        if 't55x7' in output_lower and 'detected' in output_lower:
-            return True
-        # Check for specific T5577 config block pattern
-        if 't5577' in output_lower and ('ok' in output_lower or 'success' in output_lower):
-            return True
+        if 't55x7' in output_lower or 't5577' in output_lower:
+            # Make sure it's not an error message
+            if 'error' not in output_lower and 'fail' not in output_lower:
+                return True
         return False
     except Exception:
         return False
