@@ -310,6 +310,26 @@ Once your device is reflashed and booting, you can apply the Open Source IPKs.
 - "Flow Tests" - the backbone of this project - are not passing as of the official release. After the project got 1:1 parity with the original middleware, these decoupled. In an ideal world - these should be made to work (and also be made to mock the iceman firmware+client responses). They're an excellent tool for ensuring stability across the entire codebase.
 - **ICS Decoder**: Requires external USB ICS Decoder dongle. Currently only tested with the [DIY ICS Decoder](https://github.com/Dysonian-Lab/icopy-x-ics-decoder). Nikola ICS Decoder compatibility testing is pending.
 
+### ICS Decoder Technical Notes
+
+**Working Configurations:**
+- ✅ 48-bit SEOS cards → iClass Legacy/Picopass (HF)
+- ✅ 26-bit SEOS cards → T5577 (LF)
+- ✅ 26-bit SEOS cards → iClass Legacy/Picopass (HF)
+
+**PM3 Return Code Behavior:**
+- `ret=0` or `ret=1` = command completed successfully
+- `ret=-1` = timeout/crash
+- This applies to all PM3 commands (write, detect, read)
+
+**T5577 Detection:**
+- Parser specifically targets `[H10301]` line with `FC:` and `CN:`
+- Accepts various PM3 output formats: "t55x7", "t5577", "t55xx" with "found", "chip type", "detected", or "raw:"
+
+**Log Location:**
+- Logs are stored in `/mnt/upan/dump/ics_decoder/`
+- Each session creates a new numbered log file: `001.log`, `002.log`, etc.
+
 ## Disclaimer
 
 There are multiple hardware revisions of the iCopy-X.
@@ -324,10 +344,11 @@ The goal of this project was to open-source the iCopy-X. The future maintenance 
 
 Some suggestions would be:
 
- - Integrate 4+ years of iceman repo functions, tag types and progress into the UI
- - Integrate new magic cards
+  - Integrate 4+ years of iceman repo functions, tag types and progress into the UI
+  - Integrate new magic cards
   - Expand ICS Decoder support for additional SEOS card formats
   - Complete Nikola ICS Decoder compatibility testing
+  - Add support for additional LF/HF card types
 
 # Licence
 
