@@ -439,8 +439,9 @@ def build_ipk(output_path, serial_number="UNIVERSAL", dry_run=False,
     resources = collect_resources(RES_DIR)
     if not include_flash:
         # Strip firmware files from non-flash variant
+        # Normalize path separators for cross-platform matching
         resources = [(s, p) for s, p in resources
-                     if not p.startswith("res/firmware/")]
+                     if not os.path.normpath(p).startswith(os.path.join("res", "firmware"))]
         print(f"  (--no-flash: excluded res/firmware/ from IPK)")
     _add(resources)
 
