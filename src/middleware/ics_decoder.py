@@ -30,7 +30,7 @@ except ImportError:
 _BAUD_RATE = 115200
 _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
-_READLINE_TIMEOUT = 0.3  # Strict timeout to prevent UI blocking
+_READLINE_TIMEOUT = 1.0  # Balanced: reliable decode, no UI blocking
 
 _log_path_used = None
 _log_dir = '/mnt/upan/dump/ics_decoder'
@@ -134,6 +134,10 @@ def detect_decoder():
         if ser is None:
             continue
         try:
+            # Small delay for decoder to stabilize after port open
+            time.sleep(0.1)
+            # Flush any stale data in input buffer
+            ser.reset_input_buffer()
             ser.write(_CMD_WHO.encode('utf-8'))
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             _log('DETECT_DECODER port={} response={}'.format(port, line))
