@@ -132,8 +132,11 @@ def read_card(ser):
 def parse_block(text):
     """Parse a $A_CARD_START$...$A_CARD_STOP$ block into a dict.
 
-    Keys: blk7, wiedata, bits, bit, fc, id, hex.
+    Keys: blk7, wiedata, bits, bit, fc, id, hex, sio_pacs.
     Returns None if Blk7# is missing.
+
+    For SEOS cards, FC/CN may not be in plaintext - they must be extracted
+    from the SIO PACS payload using the NN right-shift method.
     """
     result = {}
     for line in text.splitlines():
@@ -168,10 +171,153 @@ def parse_block(text):
         elif line.startswith('Hex#'):
             val = line.split(':', 1)[1].strip() if ':' in line else ''
             result['hex'] = val
+        elif line.startswith('SIO#') or line.startswith('PACS#') or line.startswith('sio#'):
+            val = line.split(':', 1)[1].strip() if ':' in line else ''
+            result['sio_pacs'] = val
+        elif line.startswith('SIO_CONTAINER#') or line.startswith('CONTAINER#'):
+            val = line.split(':', 1)[1].strip() if ':' in line else ''
+            result['sio_container'] = val
 
     if 'blk7' not in result:
         return None
+
+    if 'fc' not in result or 'id' not in result:
+        if 'sio_pacs' in result:
+            fc, cn = parse_sio_pacs(result['sio_pacs'])
+            if fc is not None:
+                result['fc'] = fc
+            if cn is not None:
+                result['id'] = cn
+        elif 'hex' in result:
+            fc, cn = parse_sio_pacs(result['hex'])
+            if fc is not None:
+                result['fc'] = fc
+            if cn is not None:
+                result['id'] = cn
+        elif 'sio_container' in result:
+            fc, cn = parse_sio_container(result['sio_container'])
+            if fc is not None:
+                result['fc'] = fc
+            if cn is not None:
+                result['id'] = cn
+
     return result
+
+
+def parse_sio_pacs(hex_string):
+    """Parse SEOS SIO PACS payload to extract FC and Card Number.
+
+    SIO PACS Wiegand Format (Black Hat Asia 2025 - Iceman & evildaemond):
+        [NN] [Payload Bytes]
+        NN = number of trailing zero padding bits
+
+    Extraction:
+        1. Read shift count NN = payload[0]
+        2. Convert remaining bytes to integer bitstream
+        3. Right-shift bitstream by NN bits (>> NN)
+        4. Parse 26-bit Wiegand frame from result
+
+    26-bit Wiegand Frame:
+        Bits 1-8: Facility Code (8 bits)
+        Bits 9-24: Card ID / CN (16 bits)
+        Bits 0 & 25: Parity bits
+
+    Args:
+        hex_string: Hex string of SIO PACS payload (e.g., "061B7D0040")
+
+    Returns:
+        Tuple of (fc, cn) or (None, None) if parsing fails
+    """
+    try:
+        hex_string = hex_string.replace(' ', '').replace(':', '')
+        if len(hex_string) < 4:
+            return None, None
+
+        payload = bytes.fromhex(hex_string)
+
+        nn = payload[0]
+
+        bitstream = int.from_bytes(payload[1:], byteorder='big')
+
+        shifted = bitstream >> nn
+
+        fc = (shifted >> 17) & 0xFF
+        cn = (shifted >> 1) & 0xFFFF
+
+        return fc, cn
+    except Exception:
+        return None, None
+
+
+def parse_sio_container(hex_string):
+    """Parse SEOS SIO ASN.1 TLV container to extract PACS payload.
+
+    SEOS SIO Container Format (ASN.1 TLV):
+        Tag 85: Encrypted PACS data (cipher bytes + 16-byte MAC)
+        Tag Other: Additional data objects
+
+    The ICS Decoder hardware performs:
+        1. ISO 7816 ADF selection (00 A4 04 00...)
+        2. Challenge-response mutual authentication
+        3. EAX/EAX' decryption with diversified KDF key
+        4. Output of decrypted PACS payload (with NN padding byte)
+
+    This function handles raw container output from the decoder if it
+    outputs the ASN.1 TLV format instead of pre-parsed PACS.
+
+    Args:
+        hex_string: Hex string of raw SIO container
+
+    Returns:
+        Tuple of (fc, cn) or (None, None) if parsing fails
+    """
+    try:
+        hex_string = hex_string.replace(' ', '').replace(':', '')
+        data = bytes.fromhex(hex_string)
+        pacs_data = _extract_tlv_tag(data, 0x85)
+        if pacs_data and len(pacs_data) > 2:
+            nn = pacs_data[0]
+            bitstream = int.from_bytes(pacs_data[1:], byteorder='big')
+            shifted = bitstream >> nn
+            fc = (shifted >> 17) & 0xFF
+            cn = (shifted >> 1) & 0xFFFF
+            return fc, cn
+        return None, None
+    except Exception:
+        return None, None
+
+
+def _extract_tlv_tag(data, target_tag):
+    """Extract value from ASN.1 TLV encoded data.
+
+    Simple TLV parser for SEOS SIO containers.
+    Format: [Tag] [Length] [Value]
+
+    Args:
+        data: Bytes of TLV encoded data
+        target_tag: Tag byte to extract (e.g., 0x85 for PACS)
+
+    Returns:
+        Bytes of the tag's value, or None if not found
+    """
+    i = 0
+    while i < len(data) - 2:
+        tag = data[i]
+        length = data[i + 1]
+        if length == 0x81:
+            length = data[i + 2]
+            value_start = i + 3
+        elif length == 0x82:
+            length = (data[i + 2] << 8) | data[i + 3]
+            value_start = i + 4
+        else:
+            value_start = i + 2
+
+        if tag == target_tag:
+            return data[value_start:value_start + length]
+
+        i = value_start + length
+    return None
 
 
 def write_to_card(blk7_hex):
