@@ -562,14 +562,13 @@ def detect_t5577():
         output = executor.getPrintContent()
         if not output:
             return False
-        # Check for T55x7 chip type in output
-        # Typical output: "[+] Chip type: T55x7" or similar
-        output_lower = output.lower()
-        if 't55x7' in output_lower or 't5577' in output_lower:
-            # Make sure it's not an error message
-            if 'error' not in output_lower and 'fail' not in output_lower:
-                return True
-        return False
+        # Accept valid PM3 indicators for T5577 (output varies by firmware)
+        out_lower = output.lower()
+        is_t5577 = (
+            ("t55x7" in out_lower or "t5577" in out_lower or "t55xx" in out_lower) and
+            ("found" in out_lower or "chip type" in out_lower or "detected" in out_lower or "raw:" in out_lower)
+        )
+        return is_t5577
     except Exception:
         return False
 

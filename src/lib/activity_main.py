@@ -8018,6 +8018,7 @@ class IClassSEActivity(BaseActivity):
     STATE_WAIT_BLANK = 'wait_blank'
     STATE_WRITING = 'writing'
     STATE_RESULT = 'result'
+    STATE_DESTROYED = 'destroyed'
 
     TARGET_HF_ICLASS = 'hf_iclass'
     TARGET_LF_T5577 = 'lf_t5577'
@@ -8190,7 +8191,9 @@ class IClassSEActivity(BaseActivity):
 
     def _poll_decoder(self):
         self._poll_timer = None
-        # Guard: only run if reading AND have valid serial port
+        # Guard: stop if destroyed, not reading, or no serial port
+        if self._state == self.STATE_DESTROYED:
+            return
         if self._state != self.STATE_READING or self._ser is None:
             return
 
@@ -8212,6 +8215,9 @@ class IClassSEActivity(BaseActivity):
 
     def _poll_target(self):
         self._target_poll_timer = None
+        # Guard: stop if destroyed or not waiting for blank
+        if self._state == self.STATE_DESTROYED:
+            return
         if self._state != self.STATE_WAIT_BLANK:
             return
 
@@ -8696,20 +8702,14 @@ class IClassSEActivity(BaseActivity):
         self._render_result_state()
 
     def onDestroy(self):
+        # Mark as destroyed FIRST to stop all polling/background work
+        self._state = self.STATE_DESTROYED
         self._stop_poll()
         self._stop_target_poll()
-        # Do NOT block on thread.join() - daemon threads die automatically
-        # Close serial port without blocking (OS will clean up if we don't)
+        # Close serial port safely without blocking
         if self._ser is not None:
             try:
-                # Cancel any pending operations
-                self._ser.cancel_read()
-                self._ser.cancel_write()
-            except Exception:
-                pass
-            try:
-                if self._ser.is_open:
-                    self._ser.close()
+                self._ser.close()
             except Exception:
                 pass
             self._ser = None
