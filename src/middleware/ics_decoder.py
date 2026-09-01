@@ -33,10 +33,11 @@ _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 0.3  # Strict timeout to prevent UI blocking
 
 _log_path_used = None
+_log_dir = '/mnt/upan/dump/ics_decoder'
 
 
 def _log(msg):
-    """Write timestamped log to file with forced flush."""
+    """Write timestamped log to numbered file in ics_decoder/ folder."""
     global _log_path_used
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
     line = '[{}] {}\n'.format(ts, msg)
@@ -48,7 +49,7 @@ def _log(msg):
     except Exception:
         pass
 
-    # If we found a working path, use it
+    # If we have a working path, use it
     if _log_path_used is not None:
         try:
             with open(_log_path_used, 'a', encoding='utf-8') as f:
@@ -59,24 +60,23 @@ def _log(msg):
         except Exception:
             _log_path_used = None
 
-    # Target the same dump path used by other processes (t55xx, iclass, hid, etc.)
-    candidate_paths = [
-        '/mnt/upan/dump/ics_decoder.log',
-        '/mnt/upan/ics_decoder.log',
-        '/mnt/upan/log.txt',
-    ]
-
-    for log_file in candidate_paths:
-        try:
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write(line)
-                f.flush()
-                os.fsync(f.fileno())
-            _log_path_used = log_file
-            return
-        except Exception:
-            continue
+    # Find next available log number in ics_decoder/ folder
+    try:
+        os.makedirs(_log_dir, exist_ok=True)
+        existing = [f for f in os.listdir(_log_dir) if f.endswith('.log')]
+        if existing:
+            nums = sorted([int(f.split('.')[0]) for f in existing if f.split('.')[0].isdigit()])
+            next_num = (nums[-1] + 1) if nums else 1
+        else:
+            next_num = 1
+        _log_path_used = os.path.join(_log_dir, '{:03d}.log'.format(next_num))
+        with open(_log_path_used, 'a', encoding='utf-8') as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+        return
+    except Exception:
+        pass
 
 
 def _open_serial(port):
