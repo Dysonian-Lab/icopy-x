@@ -526,11 +526,13 @@ def is_valid_26bit(fc, cn):
 
 
 def verify_target_card(target_type, source_data):
-    """Verify written data matches source payload.
+    """Verify written data matches original SEOS source payload.
+
+    Reads the legacy card and compares with the original decrypted SEOS data.
 
     Args:
         target_type: 'hf_iclass' or 'lf_t5577'
-        source_data: dict with source credential data
+        source_data: dict with original SEOS credential data (blk7, fc, id)
 
     Returns:
         Tuple of (success: bool, message: str)
@@ -551,7 +553,7 @@ def verify_target_card(target_type, source_data):
 
 
 def _verify_iclass(source_data):
-    """Verify HF iClass write by reading back Block 7."""
+    """Verify HF iClass write by reading Block 7 and comparing to source SEOS data."""
     try:
         import executor
     except ImportError:
@@ -560,9 +562,13 @@ def _verify_iclass(source_data):
         except ImportError:
             return (False, 'No executor')
 
-    expected = source_data.get('raw_block7', source_data.get('blk7', ''))
-    if expected:
-        expected = expected.replace(' ', '').lower().strip()
+    # Get original SEOS Block 7 data (the raw 8-byte PACS block)
+    expected_blk7 = source_data.get('blk7', '')
+    if expected_blk7:
+        expected_blk7 = expected_blk7.replace(' ', '').lower().strip()
+
+    if not expected_blk7:
+        return (False, 'No source Blk7 to compare')
 
     keys = ['AFA785A7DAB33378', '2020666666668888']
     last_error = 'No card detected'
@@ -581,13 +587,11 @@ def _verify_iclass(source_data):
             read_hex = _extract_block7_data(output)
             if read_hex:
                 read_hex_norm = read_hex.replace(' ', '').lower().strip()
-                if expected and read_hex_norm == expected:
-                    return (True, 'Blk7: {}'.format(read_hex.upper()))
-                elif expected:
-                    return (False, 'Mismatch! Read: {} Exp: {}'.format(
-                        read_hex.upper(), expected.upper()))
+                if read_hex_norm == expected_blk7:
+                    return (True, 'Blk7 verified: {}'.format(read_hex.upper()))
                 else:
-                    return (True, 'Blk7: {}'.format(read_hex.upper()))
+                    return (False, 'Mismatch! Read: {} Exp: {}'.format(
+                        read_hex.upper(), expected_blk7.upper()))
             else:
                 last_error = 'Could not parse block data'
         except Exception as e:
@@ -614,7 +618,7 @@ def _extract_block7_data(output):
 
 
 def _verify_t5577(source_data):
-    """Verify LF T5577 write by reading back FC/CN."""
+    """Verify LF T5577 write by reading FC/CN and comparing to source SEOS data."""
     try:
         import executor
     except ImportError:
@@ -623,8 +627,12 @@ def _verify_t5577(source_data):
         except ImportError:
             return (False, 'No executor')
 
+    # Get original SEOS FC/CN (extracted from SIO PACS via NN right-shift)
     exp_fc = int(source_data.get('fc', 0))
     exp_cn = int(source_data.get('id', 0) or source_data.get('cn', 0))
+
+    if exp_fc == 0 and exp_cn == 0:
+        return (False, 'No source FC/CN to compare')
 
     try:
         cmd = 'lf hid reader'
@@ -650,7 +658,7 @@ def _verify_t5577(source_data):
 
         if read_fc is not None and read_cn is not None:
             if read_fc == exp_fc and read_cn == exp_cn:
-                return (True, 'FC:{} CN:{}'.format(read_fc, read_cn))
+                return (True, 'Verified FC:{} CN:{}'.format(read_fc, read_cn))
             else:
                 return (False, 'Mismatch! FC:{} CN:{} vs Exp FC:{} CN:{}'.format(
                     read_fc, read_cn, exp_fc, exp_cn))
