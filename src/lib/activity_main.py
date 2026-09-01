@@ -8063,7 +8063,7 @@ class IClassSEActivity(BaseActivity):
         self._detect_thread = threading.Thread(target=self._detect_decoder_bg, daemon=True)
         self._detect_thread.start()
 
-        self._start_poll()
+        # Don't start poll timer yet - wait for detection to complete
 
     def _detect_decoder_bg(self):
         """Background thread for decoder detection."""
@@ -8076,15 +8076,27 @@ class IClassSEActivity(BaseActivity):
                 actstack._root.after(0, self._on_decoder_found, ser)
             else:
                 self._on_decoder_found(ser)
-        except Exception:
+        except Exception as e:
+            # Log error and pass None to main thread
+            try:
+                import ics_decoder
+                ics_decoder._log('DETECT_THREAD_ERROR: {}'.format(e))
+            except Exception:
+                pass
             self._on_decoder_found(None)
 
     def _on_decoder_found(self, ser):
         """Called on main thread after decoder detection completes."""
-        self._ser = ser
-        # Refresh display to show connection status
-        if self._state == self.STATE_READING:
-            self._render_reading_state()
+        try:
+            self._ser = ser
+            if ser is not None:
+                # Start card polling now that we have a valid port
+                self._start_poll()
+            # Refresh display to show connection status
+            if self._state == self.STATE_READING:
+                self._render_reading_state()
+        except Exception:
+            pass
 
     def _start_poll(self):
         self._stop_poll()
