@@ -8124,6 +8124,9 @@ class IClassSEActivity(BaseActivity):
             return
         self._clear_canvas()
 
+        self.setLeftButton(resources.get_str('back'))
+        self.setRightButton('')
+
         # Status line
         if self._ser is not None and getattr(self._ser, 'is_open', False):
             status_msg = 'ICS Decoder connected'
@@ -8165,6 +8168,10 @@ class IClassSEActivity(BaseActivity):
             return
         self._clear_canvas()
 
+        # Show "Write" button so user knows which button to press
+        self.setLeftButton(resources.get_str('back'))
+        self.setRightButton('Write')
+
         # Card info
         block = self._last_block
         fc = block.get('fc', '?')
@@ -8202,7 +8209,7 @@ class IClassSEActivity(BaseActivity):
         )
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='blank, press OK to write',
+            text='blank, press Write to write',
             fill='#333333',
             font=resources.get_font(13),
             anchor='center',
@@ -8215,6 +8222,9 @@ class IClassSEActivity(BaseActivity):
         if canvas is None:
             return
         self._clear_canvas()
+
+        self.setLeftButton('')
+        self.setRightButton('')
 
         canvas.create_text(
             120, self._Y_STATUS,
@@ -8239,6 +8249,9 @@ class IClassSEActivity(BaseActivity):
         if canvas is None:
             return
         self._clear_canvas()
+
+        self.setLeftButton(resources.get_str('back'))
+        self.setRightButton('Again')
 
         # Result status
         ok = self._last_write_ok
@@ -8278,7 +8291,7 @@ class IClassSEActivity(BaseActivity):
         # Prompt
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='Press OK to read again',
+            text='Press Again to read another',
             fill='#333333',
             font=resources.get_font(13),
             anchor='center',
@@ -8290,7 +8303,7 @@ class IClassSEActivity(BaseActivity):
             if key == KEY_PWR and self._handlePWR():
                 return
             self.finish()
-        elif key == KEY_OK:
+        elif key in (KEY_OK, KEY_M2):
             if self._state == self.STATE_WAIT_BLANK:
                 # User confirmed - start write
                 blk7 = self._last_block.get('blk7', '') if self._last_block else ''
