@@ -32,45 +32,68 @@ _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 3.0
 
-LOG_PATHS = [
-    '/root/proxmark3/ics_decoder.log',
-    '/mnt/sdcard/ics_decoder.log',
-    '/home/pi/ics_decoder.log',
-    '/home/pi/ipk_app_main/ics_decoder.log',
-    '/tmp/ics_decoder.log',
-]
-
-_log_written_to = None
+_log_path_used = None
 
 
 def _log(msg):
     """Write timestamped log to file with forced flush."""
-    global _log_written_to
+    global _log_path_used
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
     line = '[{}] {}\n'.format(ts, msg)
-    # Always print to stderr for console capture
+
+    # Always print to stderr
     try:
         sys.stderr.write(line)
         sys.stderr.flush()
     except Exception:
         pass
-    # Try each path with forced fsync
-    for path in LOG_PATHS:
+
+    # If we found a working path, use it
+    if _log_path_used is not None:
+        try:
+            with open(_log_path_used, 'a', encoding='utf-8') as f:
+                f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
+            return
+        except Exception:
+            _log_path_used = None
+
+    # Try multiple paths
+    paths_to_try = [
+        '/root/proxmark3/ics_decoder.log',
+        '/mnt/sdcard/ics_decoder.log',
+        '/home/pi/ics_decoder.log',
+        '/home/pi/ipk_app_main/ics_decoder.log',
+        '/tmp/ics_decoder.log',
+        '/mnt/upan/ics_decoder.log',
+        '/data/ics_decoder.log',
+    ]
+
+    # Also try current working directory
+    try:
+        cwd = os.getcwd()
+        paths_to_try.append(os.path.join(cwd, 'ics_decoder.log'))
+    except Exception:
+        pass
+
+    for path in paths_to_try:
         try:
             with open(path, 'a', encoding='utf-8') as f:
                 f.write(line)
                 f.flush()
                 os.fsync(f.fileno())
-            if _log_written_to != path:
-                _log_written_to = path
+            _log_path_used = path
             return
         except Exception:
             continue
-    # Last resort: try current directory
+
+    # Last resort - try to write to cwd with just filename
     try:
         with open('ics_decoder.log', 'a') as f:
             f.write(line)
             f.flush()
+        _log_path_used = os.path.join(os.getcwd(), 'ics_decoder.log')
     except Exception:
         pass
 
@@ -92,7 +115,8 @@ def detect_decoder():
     otherwise closes any opened handle and returns None.
     """
     _log('DETECT_DECODER_START')
-    _log('DECODER_LOG_PATH={}'.format(_log_written_to))
+    _log('CWD={}'.format(os.getcwd()))
+    _log('LOG_PATH={}'.format(_log_path_used))
 
     if serial is None:
         _log('DETECT_DECODER: serial module is None')
