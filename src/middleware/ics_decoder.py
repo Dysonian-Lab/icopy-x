@@ -201,6 +201,13 @@ def parse_block(text):
     if 'blk7' not in result:
         return None
 
+    _log('SEOS_READ blk7={} fc={} id={} sio_pacs={} hex={}'.format(
+        result.get('blk7', ''),
+        result.get('fc', ''),
+        result.get('id', ''),
+        result.get('sio_pacs', '')[:30],
+        result.get('hex', '')[:30]))
+
     if 'fc' not in result or 'id' not in result:
         if 'sio_pacs' in result:
             parsed = parse_sio_pacs(result['sio_pacs'])
@@ -220,6 +227,12 @@ def parse_block(text):
                 result['fc'] = parsed['fc']
                 result['id'] = parsed['cn']
                 result['raw'] = parsed['raw_26bit']
+
+    _log('SEOS_PARSE fc={} id={} raw={} blk7={}'.format(
+        result.get('fc', ''),
+        result.get('id', ''),
+        result.get('raw', ''),
+        result.get('blk7', '')))
 
     return result
 
@@ -242,6 +255,7 @@ def extract_and_shift_wiegand(payload_bytes: bytes) -> dict:
     if len(data) > 2 and data[0] == 0x85:
         length = data[1]
         data = data[2:2 + length]
+        _log('BITSHIFT ASN1 tag=0x85 len={}'.format(length))
 
     if len(data) < 2:
         return {"valid": False, "fc": 0, "cn": 0, "shifted_hex": "0"}
@@ -254,6 +268,9 @@ def extract_and_shift_wiegand(payload_bytes: bytes) -> dict:
 
     fc = (shifted >> 17) & 0xFF
     cn = (shifted >> 1) & 0xFFFF
+
+    _log('BITSHIFT nn={} raw_int={} shifted={} fc={} cn={}'.format(
+        shift_nn, hex(raw_int), hex(shifted), fc, cn))
 
     return {
         "valid": True,
@@ -407,16 +424,20 @@ def write_to_card(blk7_hex):
         _log('WRITE make_se_data error: {}'.format(e))
         return False
 
+    _log('WRITE se_data={}'.format(se_data))
+
     for key in ICLASS_KEYS:
         try:
             ret = iclasswrite.writeDataBlocks(17, se_data, key)
             _log('WRITE key={} ret={}'.format(key[:8], ret))
             if ret == 0:
+                _log('WRITE success with key={}'.format(key[:8]))
                 return True
         except Exception as e:
             _log('WRITE key={} error: {}'.format(key[:8], e))
             continue
 
+    _log('WRITE failed all keys')
     return False
 
 
@@ -608,23 +629,26 @@ def verify_target_card(target_type, source_data):
     # -------------------------------------------------------------
     if target_type == 'hf_iclass':
         read_hex = None
+        used_key = None
         for key in ["AFA785A7DAB33378", "2020666666668888"]:
             cmd = 'hf iclass rdbl -b 7 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
             _log('VERIFY rdbl key={} ret={}'.format(key[:8], ret))
             if ret != -1:
                 output = executor.getPrintContent()
+                _log('VERIFY output={}'.format(output[:100] if output else 'None'))
                 if output:
                     for line in output.splitlines():
                         if "block 07:" in line.lower() or "data:" in line.lower():
                             cleaned = line.split(":")[-1].replace(" ", "").replace("|", "").strip().lower()
                             if len(cleaned) >= 16:
                                 read_hex = cleaned[:16]
+                                used_key = key
                                 break
             if read_hex:
                 break
 
-        _log('VERIFY read_hex={}'.format(read_hex))
+        _log('VERIFY read_hex={} key={}'.format(read_hex, used_key[:8] if used_key else None))
 
         if not read_hex:
             return (False, "Auth failed")
@@ -639,7 +663,8 @@ def verify_target_card(target_type, source_data):
                 raw_int = int(read_hex, 16)
                 read_fc = (raw_int >> 17) & 0xFF
                 read_cn = (raw_int >> 1) & 0xFFFF
-                _log('VERIFY read_fc={} read_cn={}'.format(read_fc, read_cn))
+                _log('VERIFY read_fc={} read_cn={} exp_fc={} exp_cn={}'.format(
+                    read_fc, read_cn, expected_fc, expected_cn))
                 if read_fc == expected_fc and read_cn == expected_cn:
                     return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
                 else:
@@ -664,6 +689,7 @@ def verify_target_card(target_type, source_data):
             return (False, "No LF signal")
 
         output = executor.getPrintContent()
+        _log('VERIFY lf_output={}'.format(output[:150] if output else 'None'))
         if not output:
             return (False, "No LF signal")
 
@@ -684,13 +710,15 @@ def verify_target_card(target_type, source_data):
                         except ValueError:
                             pass
 
-        _log('VERIFY read_fc={} read_cn={}'.format(read_fc, read_cn))
+        _log('VERIFY read_fc={} read_cn={} exp_fc={} exp_cn={}'.format(
+            read_fc, read_cn, expected_fc, expected_cn))
 
         if read_fc is None or read_cn is None:
             return (False, "Failed to parse LF")
 
         if read_fc == expected_fc and read_cn == expected_cn:
             reconstructed_w26 = calculate_wiegand26_parity(read_fc, read_cn)
+            _log('VERIFY w26={}'.format(hex(reconstructed_w26)))
             return (True, "FC:{} CN:{}".format(read_fc, read_cn))
 
         return (False, "Read: FC:{} CN:{} != Exp: FC:{} CN:{}".format(
