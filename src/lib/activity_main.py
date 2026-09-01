@@ -8215,8 +8215,15 @@ class IClassSEActivity(BaseActivity):
         canvas = self.getCanvas()
         if canvas is None:
             return
-        for tag in ('_ics_status', '_ics_card_info', '_ics_prompt', '_ics_result', '_ics_target'):
+        # Delete all text items by tag
+        for tag in ('_ics_status', '_ics_card_info', '_ics_prompt', '_ics_result', '_ics_target', '_ics_verify', '_ics_verify2', '_ics_bg_clear'):
             canvas.delete(tag)
+        # Clear content area with background color to prevent text overwriting
+        canvas.create_rectangle(
+            0, 40, 240, 200,
+            fill='#F8FCF8', outline='#F8FCF8',
+            tags='_ics_bg_clear',
+        )
 
     def _get_target_display_name(self):
         if self._target_type == self.TARGET_HF_ICLASS:
@@ -8296,9 +8303,11 @@ class IClassSEActivity(BaseActivity):
         )
         y = self._Y_CARD_START
         for line in ['FC: %s' % fc, 'ID: %s' % cid, 'Blk7: %s' % blk7]:
+            # Truncate to prevent writing off display (240px wide)
+            display_line = line[:25]
             canvas.create_text(
                 120, y,
-                text=line,
+                text=display_line,
                 fill='#000000',
                 font=resources.get_font(13),
                 anchor='center',
@@ -8310,7 +8319,7 @@ class IClassSEActivity(BaseActivity):
         if not is_26bit and self._target_type == self.TARGET_LF_T5577:
             canvas.create_text(
                 120, self._Y_PROMPT,
-                text='Incompatible: Requires HF iClass',
+                text='HF iClass Required',
                 fill='#8B0000',
                 font=resources.get_font(13),
                 anchor='center',
@@ -8440,9 +8449,11 @@ class IClassSEActivity(BaseActivity):
                 blk7 = block.get('blk7', '?')
                 y = self._Y_CARD_START
                 for line in ['FC: %s' % fc, 'ID: %s' % cid, 'Blk7: %s' % blk7]:
+                    # Truncate to prevent writing off display (240px wide)
+                    display_line = line[:25]
                     canvas.create_text(
                         120, y,
-                        text=line,
+                        text=display_line,
                         fill='#000000',
                         font=resources.get_font(13),
                         anchor='center',
@@ -8480,14 +8491,14 @@ class IClassSEActivity(BaseActivity):
                     tags='_ics_target',
                 )
 
-        canvas.create_text(
-            120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='Retry / Verify',
-            fill='#333333',
-            font=resources.get_font(13),
-            anchor='center',
-            tags='_ics_prompt',
-        )
+            canvas.create_text(
+                120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
+                text='Retry / Verify',
+                fill='#333333',
+                font=resources.get_font(13),
+                anchor='center',
+                tags='_ics_prompt',
+            )
 
     def onKeyEvent(self, key):
         if key == KEY_PWR:
@@ -8556,15 +8567,15 @@ class IClassSEActivity(BaseActivity):
                 success, msg = ics_decoder.verify_target_card(
                     self._target_type, self._source_data)
                 self._verify_success = success
-                # Split message into 2 lines for display
+                # Format message for 240px display (max ~20 chars per line)
                 if '!=' in msg:
                     parts = msg.split('!=')
-                    self._verify_msg = parts[0].strip()[:20]
-                    self._verify_msg2 = parts[1].strip()[:20]
+                    self._verify_msg = parts[0].strip()[:18]
+                    self._verify_msg2 = parts[1].strip()[:18]
                 elif ' vs ' in msg:
                     parts = msg.split(' vs ')
-                    self._verify_msg = parts[0].strip()[:20]
-                    self._verify_msg2 = parts[1].strip()[:20]
+                    self._verify_msg = parts[0].strip()[:18]
+                    self._verify_msg2 = parts[1].strip()[:18]
                 else:
                     self._verify_msg = msg[:20]
                     self._verify_msg2 = ''
@@ -8577,6 +8588,18 @@ class IClassSEActivity(BaseActivity):
             self._verify_msg = 'Verify error'
             self._verify_msg2 = ''
 
+        # Schedule UI update on main thread (Tkinter is not thread-safe)
+        try:
+            from lib import actstack
+            if actstack._root is not None:
+                actstack._root.after(0, self._on_verify_done)
+            else:
+                self._on_verify_done()
+        except Exception:
+            self._on_verify_done()
+
+    def _on_verify_done(self):
+        """Called on main thread after background verify completes."""
         self._state = self.STATE_RESULT
         self.setidle()
         self._render_result_state()

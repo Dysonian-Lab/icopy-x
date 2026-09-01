@@ -30,7 +30,7 @@ except ImportError:
 _BAUD_RATE = 115200
 _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
-_READLINE_TIMEOUT = 3.0
+_READLINE_TIMEOUT = 0.3  # Strict timeout to prevent UI blocking
 
 _log_path_used = None
 
@@ -94,6 +94,8 @@ def detect_decoder():
 
     Returns the serial handle if a device replies with ISE to Who,
     otherwise closes any opened handle and returns None.
+
+    Uses strict timeouts to prevent UI blocking.
     """
     _log('DETECT_DECODER_START')
     _log('CWD={}'.format(os.getcwd()))
@@ -140,10 +142,11 @@ def detect_decoder():
                 return ser
         except Exception as e:
             _log('DETECT_DECODER port={} error={}'.format(port, e))
-        try:
-            ser.close()
-        except Exception:
-            pass
+        finally:
+            try:
+                ser.close()
+            except Exception:
+                pass
 
     _log('DETECT_DECODER: no decoder found')
     return None
@@ -715,12 +718,13 @@ def verify_target_card(target_type, source_data):
                 if read_fc == expected_fc and read_cn == expected_cn:
                     return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
                 else:
-                    return (False, "Read: FC:{} CN:{} != Exp: FC:{} CN:{}".format(
+                    # Shortened messages for 240px display
+                    return (False, "R:FC:{} CN:{} != E:FC:{} CN:{}".format(
                         read_fc, read_cn, expected_fc, expected_cn))
             except Exception:
                 pass
 
-        return (False, "Read: {} != Exp: {}".format(clean_read.upper(), clean_exp.upper()))
+        return (False, "R:{} != E:{}".format(clean_read.upper()[:8], clean_exp.upper()[:8]))
 
     # -------------------------------------------------------------
     # 2. LF T5577 Verification
@@ -768,7 +772,7 @@ def verify_target_card(target_type, source_data):
             _log('VERIFY w26={}'.format(hex(reconstructed_w26)))
             return (True, "FC:{} CN:{}".format(read_fc, read_cn))
 
-        return (False, "Read: FC:{} CN:{} != Exp: FC:{} CN:{}".format(
+        return (False, "R:FC:{} CN:{} != E:FC:{} CN:{}".format(
             read_fc, read_cn, expected_fc, expected_cn))
 
     return (False, "Unknown target")
