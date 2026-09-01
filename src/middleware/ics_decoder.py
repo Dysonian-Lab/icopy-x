@@ -653,17 +653,27 @@ def verify_target_card(target_type, source_data):
         if not read_hex:
             return (False, "Auth failed")
 
-        # Compare raw 8-byte payload
-        if expected_blk7 and read_hex == expected_blk7:
-            return (True, "Verified: {}".format(read_hex.upper()[:8]))
+        # Normalize both strings for comparison
+        clean_read = read_hex.strip().replace(" ", "").lower()
+        clean_exp = expected_blk7.strip().replace(" ", "").lower()
 
-        # If 26-bit, attempt reverse bit-shift parse to verify extracted FC/CN match
+        _log('VERIFY clean_read={} clean_exp={} match={}'.format(
+            clean_read, clean_exp, clean_read == clean_exp))
+
+        # Direct raw match takes precedence
+        if clean_read == clean_exp and len(clean_read) == 16:
+            if is_26bit and expected_fc > 0:
+                return (True, "Verified FC:{} CN:{}".format(expected_fc, expected_cn))
+            else:
+                return (True, "Blk7: {}".format(clean_read.upper()))
+
+        # Only execute 26-bit bit-shift validation if raw equality fails
         if is_26bit:
             try:
-                raw_int = int(read_hex, 16)
+                raw_int = int(clean_read, 16)
                 read_fc = (raw_int >> 17) & 0xFF
                 read_cn = (raw_int >> 1) & 0xFFFF
-                _log('VERIFY read_fc={} read_cn={} exp_fc={} exp_cn={}'.format(
+                _log('VERIFY bitshift read_fc={} read_cn={} exp_fc={} exp_cn={}'.format(
                     read_fc, read_cn, expected_fc, expected_cn))
                 if read_fc == expected_fc and read_cn == expected_cn:
                     return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
@@ -673,7 +683,7 @@ def verify_target_card(target_type, source_data):
             except Exception:
                 pass
 
-        return (False, "Read: {} != Exp: {}".format(read_hex.upper()[:8], expected_blk7.upper()[:8]))
+        return (False, "Read: {} != Exp: {}".format(clean_read.upper(), clean_exp.upper()))
 
     # -------------------------------------------------------------
     # 2. LF T5577 Verification
