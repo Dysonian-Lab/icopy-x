@@ -346,8 +346,8 @@ def collect_build_binaries(serial_number, include_flash=True):
         print("WARNING: build/proxmark3 not found — run Docker build first")
 
     # lua.zip -> pm3/lua.zip (PM3 LUA scripts)
-    # Both flash and no-flash IPKs use the Iceman Lua scripts (Lua 5.4).
-    # Since our devices run Iceman client, the Lua scripts must match.
+    # Iceman client (4.2 MB) REQUIRES Lua 5.4 — must use build/lua.zip
+    # factory_lua.zip is Lua 5.1 and will NOT work with Iceman client
     lua_build = os.path.join(BUILD_DIR, "lua.zip")
     if os.path.exists(lua_build):
         pairs.append((lua_build, "pm3/lua.zip"))
