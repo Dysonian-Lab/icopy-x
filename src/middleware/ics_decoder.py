@@ -621,7 +621,7 @@ def write_to_t5577(fc, card_id):
         _log('WRITE fc={} cn={}'.format(int(fc), int(card_id)))
         ret = executor.startPM3Task(cmd, timeout=5000)
         _log('WRITE ret={}'.format(ret))
-        return ret != -1
+        return ret == 0  # 0 = success, 1 = failure, -1 = timeout
     except Exception:
         return False
 
@@ -772,20 +772,17 @@ def verify_target_card(target_type, source_data):
 
         read_fc = None
         read_cn = None
+        # Specifically target the H10301 line with valid parity
         for line in output.splitlines():
-            if "FC:" in line or "Card:" in line or "CN:" in line:
-                tokens = line.replace(",", " ").replace("-", " ").split()
-                for i, token in enumerate(tokens):
-                    if token == "FC:" and i + 1 < len(tokens):
-                        try:
-                            read_fc = int(tokens[i + 1].strip())
-                        except ValueError:
-                            pass
-                    if token in ("Card:", "CN:") and i + 1 < len(tokens):
-                        try:
-                            read_cn = int(tokens[i + 1].strip())
-                        except ValueError:
-                            pass
+            line_lower = line.lower()
+            if "h10301" in line_lower and "fc:" in line_lower and "cn:" in line_lower:
+                import re
+                fc_match = re.search(r'FC:\s*(\d+)', line, re.IGNORECASE)
+                cn_match = re.search(r'CN:\s*(\d+)', line, re.IGNORECASE)
+                if fc_match and cn_match:
+                    read_fc = int(fc_match.group(1))
+                    read_cn = int(cn_match.group(1))
+                    break  # Found the correct line, stop searching
 
         _log('VERIFY read_fc={} read_cn={} exp_fc={} exp_cn={}'.format(
             read_fc, read_cn, expected_fc, expected_cn))
