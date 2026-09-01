@@ -8392,7 +8392,7 @@ class IClassSEActivity(BaseActivity):
             return
         self._clear_canvas()
 
-        self.setLeftButton(resources.get_str('back'))
+        self.setLeftButton('Verify')
         self.setRightButton('Retry')
 
         ok = self._last_write_ok
@@ -8478,7 +8478,7 @@ class IClassSEActivity(BaseActivity):
 
         canvas.create_text(
             120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
-            text='Retry / Back',
+            text='Retry / Verify',
             fill='#333333',
             font=resources.get_font(13),
             anchor='center',
@@ -8486,10 +8486,15 @@ class IClassSEActivity(BaseActivity):
         )
 
     def onKeyEvent(self, key):
-        if key in (KEY_M1, KEY_PWR):
-            if key == KEY_PWR and self._handlePWR():
+        if key == KEY_PWR:
+            if self._handlePWR():
                 return
             self.finish()
+        elif key == KEY_M1:
+            if self._state == self.STATE_RESULT:
+                self._do_verify()
+            else:
+                self.finish()
         elif key in (KEY_OK, KEY_M2):
             if self._state == self.STATE_WAIT_BLANK:
                 if self._source_data:
@@ -8504,6 +8509,58 @@ class IClassSEActivity(BaseActivity):
                     self.setbusy()
                     self._render_writing_state()
                     self.startBGTask(self._do_write)
+
+    def _do_verify(self):
+        """Perform fresh verification read of target card."""
+        if not self._source_data:
+            return
+        self._state = self.STATE_WRITING
+        self.setbusy()
+        self._render_verifying_state()
+        self.startBGTask(self._do_verify_bg)
+
+    def _render_verifying_state(self):
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+        self._clear_canvas()
+        self.setLeftButton('')
+        self.setRightButton('')
+        canvas.create_text(
+            120, self._Y_STATUS,
+            text='Verifying...',
+            fill='#333333',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_result',
+        )
+        canvas.create_text(
+            120, self._Y_CARD_START,
+            text='Reading card...',
+            fill='#8B0000',
+            font=resources.get_font(14),
+            anchor='center',
+            tags='_ics_prompt',
+        )
+
+    def _do_verify_bg(self):
+        """Background verification task."""
+        try:
+            import ics_decoder
+            self._target_type = ics_decoder.detect_target()
+            if self._target_type:
+                self._verify_success, self._verify_msg = ics_decoder.verify_target_card(
+                    self._target_type, self._source_data)
+            else:
+                self._verify_success = False
+                self._verify_msg = 'No card on coil'
+        except Exception:
+            self._verify_success = False
+            self._verify_msg = 'Verify error'
+
+        self._state = self.STATE_RESULT
+        self.setidle()
+        self._render_result_state()
 
     def onDestroy(self):
         self._stop_poll()

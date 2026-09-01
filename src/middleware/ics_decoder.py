@@ -565,15 +565,18 @@ def _verify_iclass(source_data):
         expected = expected.replace(' ', '').lower().strip()
 
     keys = ['AFA785A7DAB33378', '2020666666668888']
+    last_error = 'No card detected'
 
     for key in keys:
         try:
             cmd = 'hf iclass rdbl --blk 7 -k {}'.format(key)
             ret = executor.startPM3Task(cmd, timeout=3000)
             if ret == -1:
+                last_error = 'Auth failed (key: {}...)'.format(key[:8])
                 continue
             output = executor.getPrintContent()
             if not output:
+                last_error = 'No response from card'
                 continue
             read_hex = _extract_block7_data(output)
             if read_hex:
@@ -581,14 +584,17 @@ def _verify_iclass(source_data):
                 if expected and read_hex_norm == expected:
                     return (True, 'Blk7: {}'.format(read_hex.upper()))
                 elif expected:
-                    return (False, 'Read: {} != Expected: {}'.format(
+                    return (False, 'Mismatch! Read: {} Exp: {}'.format(
                         read_hex.upper(), expected.upper()))
                 else:
                     return (True, 'Blk7: {}'.format(read_hex.upper()))
-        except Exception:
+            else:
+                last_error = 'Could not parse block data'
+        except Exception as e:
+            last_error = 'Error: {}'.format(str(e)[:30])
             continue
 
-    return (False, 'Verify read failed')
+    return (False, last_error)
 
 
 def _extract_block7_data(output):
@@ -624,10 +630,10 @@ def _verify_t5577(source_data):
         cmd = 'lf hid reader'
         ret = executor.startPM3Task(cmd, timeout=5000)
         if ret == -1:
-            return (False, 'LF read failed')
+            return (False, 'No LF card detected')
         output = executor.getPrintContent()
         if not output:
-            return (False, 'No LF output')
+            return (False, 'No response from reader')
 
         read_fc = None
         read_cn = None
@@ -646,11 +652,14 @@ def _verify_t5577(source_data):
             if read_fc == exp_fc and read_cn == exp_cn:
                 return (True, 'FC:{} CN:{}'.format(read_fc, read_cn))
             else:
-                return (False, 'Read FC:{} CN:{} != Exp FC:{} CN:{}'.format(
+                return (False, 'Mismatch! FC:{} CN:{} vs Exp FC:{} CN:{}'.format(
                     read_fc, read_cn, exp_fc, exp_cn))
-        return (False, 'Could not parse LF readback')
-    except Exception:
-        return (False, 'LF verify error')
+        elif read_fc is not None:
+            return (False, 'Partial read: FC:{} (CN missing)'.format(read_fc))
+        else:
+            return (False, 'Could not parse LF readback')
+    except Exception as e:
+        return (False, 'LF error: {}'.format(str(e)[:30]))
 
 
 def _extract_numbers(text):
