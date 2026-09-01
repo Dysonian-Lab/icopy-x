@@ -183,25 +183,64 @@ def parse_block(text):
 
     if 'fc' not in result or 'id' not in result:
         if 'sio_pacs' in result:
-            fc, cn = parse_sio_pacs(result['sio_pacs'])
-            if fc is not None:
-                result['fc'] = fc
-            if cn is not None:
-                result['id'] = cn
+            parsed = parse_sio_pacs(result['sio_pacs'])
+            if parsed['valid']:
+                result['fc'] = parsed['fc']
+                result['id'] = parsed['cn']
+                result['raw'] = parsed['raw_26bit']
         elif 'hex' in result:
-            fc, cn = parse_sio_pacs(result['hex'])
-            if fc is not None:
-                result['fc'] = fc
-            if cn is not None:
-                result['id'] = cn
+            parsed = parse_sio_pacs(result['hex'])
+            if parsed['valid']:
+                result['fc'] = parsed['fc']
+                result['id'] = parsed['cn']
+                result['raw'] = parsed['raw_26bit']
         elif 'sio_container' in result:
-            fc, cn = parse_sio_container(result['sio_container'])
-            if fc is not None:
-                result['fc'] = fc
-            if cn is not None:
-                result['id'] = cn
+            parsed = parse_sio_container(result['sio_container'])
+            if parsed['valid']:
+                result['fc'] = parsed['fc']
+                result['id'] = parsed['cn']
+                result['raw'] = parsed['raw_26bit']
 
     return result
+
+
+def extract_and_shift_wiegand(payload_bytes: bytes) -> dict:
+    """Strip ASN.1 Tag 85 if present, extract padding byte NN,
+    and apply right-shift to construct the Wiegand frame.
+
+    Handles both raw decrypted payloads ([NN] [Payload]) and
+    ASN.1 TLV containers with Tag 0x85 (PACS payload container).
+
+    Args:
+        payload_bytes: Raw bytes from decoder (with or without ASN.1 wrapper)
+
+    Returns:
+        Dict with keys: valid, fc, cn, shifted_hex
+    """
+    data = payload_bytes
+
+    if len(data) > 2 and data[0] == 0x85:
+        length = data[1]
+        data = data[2:2 + length]
+
+    if len(data) < 2:
+        return {"valid": False, "fc": 0, "cn": 0, "shifted_hex": "0"}
+
+    shift_nn = data[0]
+    payload_data = data[1:]
+
+    raw_int = int.from_bytes(payload_data, byteorder="big")
+    shifted = raw_int >> shift_nn
+
+    fc = (shifted >> 17) & 0xFF
+    cn = (shifted >> 1) & 0xFFFF
+
+    return {
+        "valid": True,
+        "fc": fc,
+        "cn": cn,
+        "shifted_hex": hex(shifted)
+    }
 
 
 def parse_sio_pacs(hex_string):
@@ -213,40 +252,39 @@ def parse_sio_pacs(hex_string):
 
     Extraction:
         1. Read shift count NN = payload[0]
-        2. Convert remaining bytes to integer bitstream
+        2. Convert remaining bytes to integer bitstream (big-endian)
         3. Right-shift bitstream by NN bits (>> NN)
         4. Parse 26-bit Wiegand frame from result
 
-    26-bit Wiegand Frame:
-        Bits 1-8: Facility Code (8 bits)
-        Bits 9-24: Card ID / CN (16 bits)
-        Bits 0 & 25: Parity bits
+    26-bit Wiegand Frame (H10301):
+        [P_even (1b)] [FC (8b)] [CN (16b)] [P_odd (1b)]
 
     Args:
         hex_string: Hex string of SIO PACS payload (e.g., "061B7D0040")
 
     Returns:
-        Tuple of (fc, cn) or (None, None) if parsing fails
+        Dict with keys: fc, cn, raw_26bit, valid
     """
+    if not hex_string:
+        return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
+
     try:
-        hex_string = hex_string.replace(' ', '').replace(':', '')
+        hex_string = hex_string.strip().replace(' ', '').replace(':', '')
         if len(hex_string) < 4:
-            return None, None
+            return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
 
-        payload = bytes.fromhex(hex_string)
-
-        nn = payload[0]
-
-        bitstream = int.from_bytes(payload[1:], byteorder='big')
-
-        shifted = bitstream >> nn
-
-        fc = (shifted >> 17) & 0xFF
-        cn = (shifted >> 1) & 0xFFFF
-
-        return fc, cn
+        raw_bytes = bytes.fromhex(hex_string)
+        result = extract_and_shift_wiegand(raw_bytes)
+        if result['valid']:
+            return {
+                "fc": result['fc'],
+                "cn": result['cn'],
+                "raw_26bit": result['shifted_hex'],
+                "valid": True
+            }
+        return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
     except Exception:
-        return None, None
+        return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
 
 
 def parse_sio_container(hex_string):
@@ -269,22 +307,25 @@ def parse_sio_container(hex_string):
         hex_string: Hex string of raw SIO container
 
     Returns:
-        Tuple of (fc, cn) or (None, None) if parsing fails
+        Dict with keys: fc, cn, raw_26bit, valid
     """
+    if not hex_string:
+        return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
+
     try:
-        hex_string = hex_string.replace(' ', '').replace(':', '')
+        hex_string = hex_string.strip().replace(' ', '').replace(':', '')
         data = bytes.fromhex(hex_string)
-        pacs_data = _extract_tlv_tag(data, 0x85)
-        if pacs_data and len(pacs_data) > 2:
-            nn = pacs_data[0]
-            bitstream = int.from_bytes(pacs_data[1:], byteorder='big')
-            shifted = bitstream >> nn
-            fc = (shifted >> 17) & 0xFF
-            cn = (shifted >> 1) & 0xFFFF
-            return fc, cn
-        return None, None
+        result = extract_and_shift_wiegand(data)
+        if result['valid']:
+            return {
+                "fc": result['fc'],
+                "cn": result['cn'],
+                "raw_26bit": result['shifted_hex'],
+                "valid": True
+            }
+        return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
     except Exception:
-        return None, None
+        return {"fc": 0, "cn": 0, "raw_26bit": "0", "valid": False}
 
 
 def _extract_tlv_tag(data, target_tag):
