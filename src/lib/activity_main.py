@@ -8040,6 +8040,7 @@ class IClassSEActivity(BaseActivity):
         self._write_blocked_reason = None
         self._verify_success = None
         self._verify_msg = ''
+        self._verify_msg2 = ''
         super().__init__(bundle)
 
     def onCreate(self, bundle):
@@ -8149,6 +8150,7 @@ class IClassSEActivity(BaseActivity):
             self._last_write_ok = False
             self._verify_success = None
             self._verify_msg = ''
+            self._verify_msg2 = ''
             self._on_write_done()
             return
 
@@ -8164,6 +8166,7 @@ class IClassSEActivity(BaseActivity):
                 self._last_write_ok = False
                 self._verify_success = None
                 self._verify_msg = ''
+                self._verify_msg2 = ''
                 self._on_write_done()
                 return
 
@@ -8177,6 +8180,7 @@ class IClassSEActivity(BaseActivity):
                     self._write_blocked_reason = 'non_26bit_lf'
                     self._verify_success = None
                     self._verify_msg = ''
+                    self._verify_msg2 = ''
                     self._on_write_done()
                     return
                 self._write_blocked_reason = None
@@ -8189,19 +8193,9 @@ class IClassSEActivity(BaseActivity):
             ok = False
 
         self._last_write_ok = ok
-
-        # Post-write verification
-        if ok:
-            try:
-                import ics_decoder
-                self._verify_success, self._verify_msg = ics_decoder.verify_target_card(
-                    self._target_type, source)
-            except Exception:
-                self._verify_success = False
-                self._verify_msg = 'Verify error'
-        else:
-            self._verify_success = None
-            self._verify_msg = ''
+        self._verify_success = None
+        self._verify_msg = ''
+        self._verify_msg2 = ''
 
         try:
             from lib import actstack
@@ -8399,6 +8393,7 @@ class IClassSEActivity(BaseActivity):
         blocked = self._write_blocked_reason
         verify = self._verify_success
         verify_msg = self._verify_msg
+        verify_msg2 = self._verify_msg2
 
         if blocked == 'non_26bit_lf':
             result_msg = 'Non-26b SIO!'
@@ -8410,7 +8405,7 @@ class IClassSEActivity(BaseActivity):
             result_msg = 'Write Failed!'
             result_color = '#8B0000'
         elif verify is True:
-            result_msg = 'Write & Verify OK!'
+            result_msg = 'Verified OK!'
             result_color = '#006400'
         elif verify is False:
             result_msg = 'Verify Mismatch!'
@@ -8464,6 +8459,15 @@ class IClassSEActivity(BaseActivity):
                 anchor='center',
                 tags='_ics_verify',
             )
+            if verify_msg2:
+                canvas.create_text(
+                    120, self._Y_PROMPT + self._Y_LINE_HEIGHT,
+                    text=verify_msg2,
+                    fill=result_color,
+                    font=resources.get_font(12),
+                    anchor='center',
+                    tags='_ics_verify2',
+                )
         else:
             target_name = self._get_target_display_name()
             if target_name:
@@ -8549,14 +8553,29 @@ class IClassSEActivity(BaseActivity):
             import ics_decoder
             self._target_type = ics_decoder.detect_target()
             if self._target_type:
-                self._verify_success, self._verify_msg = ics_decoder.verify_target_card(
+                success, msg = ics_decoder.verify_target_card(
                     self._target_type, self._source_data)
+                self._verify_success = success
+                # Split message into 2 lines for display
+                if '!=' in msg:
+                    parts = msg.split('!=')
+                    self._verify_msg = parts[0].strip()[:20]
+                    self._verify_msg2 = parts[1].strip()[:20]
+                elif ' vs ' in msg:
+                    parts = msg.split(' vs ')
+                    self._verify_msg = parts[0].strip()[:20]
+                    self._verify_msg2 = parts[1].strip()[:20]
+                else:
+                    self._verify_msg = msg[:20]
+                    self._verify_msg2 = ''
             else:
                 self._verify_success = False
                 self._verify_msg = 'No card on coil'
+                self._verify_msg2 = ''
         except Exception:
             self._verify_success = False
             self._verify_msg = 'Verify error'
+            self._verify_msg2 = ''
 
         self._state = self.STATE_RESULT
         self.setidle()

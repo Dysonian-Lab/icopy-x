@@ -594,46 +594,47 @@ def verify_target_card(target_type, source_data):
                 break
 
         if not read_hex:
-            return (False, "Auth failed / Read error")
+            return (False, "Auth failed")
 
         # Compare raw 8-byte payload
         if expected_blk7 and read_hex == expected_blk7:
-            return (True, "Blk7: {}".format(read_hex.upper()))
+            return (True, "Verified: {}".format(read_hex.upper()[:8]))
 
         # If 26-bit, attempt reverse bit-shift parse to verify extracted FC/CN match
         if is_26bit:
             try:
                 raw_int = int(read_hex, 16)
-                # Standard right-shift unpacking for PACS H10301 inside Block 7
                 read_fc = (raw_int >> 17) & 0xFF
                 read_cn = (raw_int >> 1) & 0xFFFF
                 if read_fc == expected_fc and read_cn == expected_cn:
                     return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
+                else:
+                    return (False, "Read: FC:{} CN:{} != Exp: FC:{} CN:{}".format(
+                        read_fc, read_cn, expected_fc, expected_cn))
             except Exception:
                 pass
 
-        return (False, "Mismatch: {} != {}".format(read_hex.upper(), expected_blk7.upper()))
+        return (False, "Read: {} != Exp: {}".format(read_hex.upper()[:8], expected_blk7.upper()[:8]))
 
     # -------------------------------------------------------------
     # 2. LF T5577 Verification
     # -------------------------------------------------------------
     elif target_type == 'lf_t5577':
         if not is_26bit:
-            return (False, "LF target invalid for non-26b")
+            return (False, "LF invalid for non-26b")
 
         cmd = 'lf hid reader'
         ret = executor.startPM3Task(cmd, timeout=5000)
         if ret == -1:
-            return (False, "No LF signal detected")
+            return (False, "No LF signal")
 
         output = executor.getPrintContent()
         if not output:
-            return (False, "No LF signal detected")
+            return (False, "No LF signal")
 
         read_fc = None
         read_cn = None
         for line in output.splitlines():
-            # Example PM3 output: [+] HID Prox TAG ID: 2004245678 (46574) - Format: 26b H10301 - FC: 78 - Card: 46574
             if "FC:" in line or "Card:" in line or "CN:" in line:
                 tokens = line.replace(",", " ").replace("-", " ").split()
                 for i, token in enumerate(tokens):
@@ -649,17 +650,15 @@ def verify_target_card(target_type, source_data):
                             pass
 
         if read_fc is None or read_cn is None:
-            return (False, "Failed to parse LF readback")
+            return (False, "Failed to parse LF")
 
-        # Direct FC / CN integer check
         if read_fc == expected_fc and read_cn == expected_cn:
-            # Reconstruct 26-bit frame with parities to cross-validate against raw block
             reconstructed_w26 = calculate_wiegand26_parity(read_fc, read_cn)
-            return (True, "FC:{} CN:{} [W26: {}]".format(read_fc, read_cn, hex(reconstructed_w26)))
+            return (True, "FC:{} CN:{}".format(read_fc, read_cn))
 
-        return (False, "Mismatch: Read FC:{} CN:{} != Exp FC:{} CN:{}".format(
+        return (False, "Read: FC:{} CN:{} != Exp: FC:{} CN:{}".format(
             read_fc, read_cn, expected_fc, expected_cn))
 
-    return (False, "Unknown target type")
+    return (False, "Unknown target")
 
 
