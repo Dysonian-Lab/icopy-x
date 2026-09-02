@@ -50,11 +50,17 @@
 - `src/lib/actmain.py` - MENU_ITEMS registration
 - `README.md` - Documentation
 
-## Hardware
-- **DIY ICS Decoder**: Tested & working (https://github.com/Dysonian-Lab/icopy-x-ics-decoder)
-- **Nikola ICS Decoder**: Testing pending
+## Documentation Style Notes
+- Avoid heavy bullet points and emojis (✅, ⏳) - looks AI-generated
+- Use paragraph-style technical writing instead of rigid tables
+- "Integrates X for doing Y" = AI speak. Use "Adds X so device does Y"
+- Keep technical accuracy but write like a human engineer explaining it
+- PR description should be conversational, not a feature spec sheet
 
-## Known Bugs Fixed
+## Pull Request
+- PR #14: https://github.com/lab-401/icopy-x/pull/14
+- Submitted to lab-401/icopy-x (original repo)
+- Keep PR description conversational, not a bullet-point spec
 1. Gray screen on exit - caused by thread.join() in onDestroy
 2. T5577 false detection - fixed by targeting H10301 line
 3. T5577 write false failure - fixed by accepting ret=0 or ret=1
