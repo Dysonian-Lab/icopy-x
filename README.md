@@ -313,23 +313,16 @@ Once your device is reflashed and booting, you can apply the Open Source IPKs.
 ### ICS Decoder Technical Notes
 
 **Working Configurations:**
-- ✅ 48-bit SEOS cards → iClass Legacy/Picopass (HF)
-- ✅ 26-bit SEOS cards → T5577 (LF)
-- ✅ 26-bit SEOS cards → iClass Legacy/Picopass (HF)
+SEOS cards write to iClass Legacy (48-bit and 26-bit payloads) and T5577 (26-bit only).
 
 **PM3 Return Code Behavior:**
-- `ret=0` or `ret=1` = command completed successfully
-- `ret=-1` = timeout/crash
-- This applies to all PM3 commands (write, detect, read)
+The executor returns 0 or 1 when a command completes. Only -1 means timeout/crash. This matters for T5577 writes - requiring strictly ret=0 causes false failures.
 
 **T5577 Detection:**
-- Parser specifically targets `[H10301]` line with `FC:` and `CN:`
-- Accepts various PM3 output formats: "t55x7", "t5577", "t55xx" with "found", "chip type", "detected", or "raw:"
+Parser targets the [H10301] line and extracts FC/CN via regex. PM3 output varies by firmware version (sometimes "Chip type: T55x7", sometimes "Valid T55xx chip found") so the check accepts several keyword combinations. This avoids matching secondary decodes like Indala that appear in the same output buffer.
 
 **Log Location:**
-- Logs are stored in `/mnt/upan/dump/ics_decoder/`
-- Each session creates a new numbered log file: `001.log`, `002.log`, etc.
-
+/mnt/upan/dump/ics_decoder/ - each session creates a new numbered file (001.log, 002.log, etc.)
 ## Disclaimer
 
 There are multiple hardware revisions of the iCopy-X.
