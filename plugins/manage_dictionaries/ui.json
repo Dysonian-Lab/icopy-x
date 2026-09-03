@@ -1,7 +1,7 @@
 {
     "plugin": true,
     "name": "Manage Dictionaries",
-    "version": "1.0.2",
+    "version": "1.0.6",
     "initial_state": "main_menu",
     "states": {
         "main_menu": {
@@ -12,7 +12,8 @@
                     "items": [
                         {"label": "1. Load Dictionaries", "action": "set_state:load_warning"},
                         {"label": "2. Add to Dictionary", "action": "set_state:add_picker"},
-                        {"label": "3. Backup Dictionaries", "action": "set_state:backup_info"}
+                        {"label": "3. Backup Dictionaries", "action": "set_state:backup_info"},
+                        {"label": "4. Clear User Keys", "action": "set_state:clear_info"}
                     ]
                 },
                 "buttons": {"left": "Exit", "right": "Select"},
@@ -153,8 +154,8 @@
                     "type": "text",
                     "lines": [
                         {"text": "Backup #1 created", "size": "large", "align": "center"},
-                        {"text": ""},
                         {"text": "MF1:   {backup_mf}", "size": "medium", "align": "center"},
+                        {"text": "User:  {backup_user}", "size": "medium", "align": "center"},
                         {"text": "T55xx: {backup_t55}", "size": "medium", "align": "center"}
                     ]
                 },
@@ -361,6 +362,105 @@
                 "keys": {
                     "OK": "set_state:add_picker",
                     "M2": "set_state:add_picker",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "clear_info": {
+            "on_enter": "run:do_clear_info",
+            "screen": {
+                "title": "Clear User Keys",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "{clear_count} learned keys", "size": "medium", "align": "center"},
+                        {"text": ""},
+                        {"text": "Clears ONLY", "size": "medium", "align": "center"},
+                        {"text": "mfc_users_keys.dic", "size": "medium", "align": "center"},
+                        {"text": "Default + T55xx safe", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Back", "right": "Clear"},
+                "keys": {
+                    "OK": "set_state:clearing",
+                    "M2": "set_state:clearing",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "clearing": {
+            "on_enter": "run:do_clear",
+            "screen": {
+                "title": "Clear User Keys",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Clearing...", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": null, "right": null}
+            },
+            "transitions": {
+                "on_result.status==done": "clear_done",
+                "on_result.status==empty": "clear_empty",
+                "on_result.status==error": "clear_error",
+                "on_error": "clear_error"
+            }
+        },
+        "clear_done": {
+            "screen": {
+                "title": "Clear User Keys",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "User keys cleared", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "{clear_count} keys removed", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "OK"},
+                "keys": {
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "clear_empty": {
+            "screen": {
+                "title": "Clear User Keys",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "No user keys", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "Nothing to clear", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "OK"},
+                "keys": {
+                    "OK": "set_state:main_menu",
+                    "M2": "set_state:main_menu",
+                    "M1": "set_state:main_menu"
+                }
+            }
+        },
+        "clear_error": {
+            "screen": {
+                "title": "Clear User Keys",
+                "content": {
+                    "type": "text",
+                    "lines": [
+                        {"text": "Clear failed", "size": "large", "align": "center"},
+                        {"text": ""},
+                        {"text": "Could not remove", "size": "medium", "align": "center"},
+                        {"text": "the user dictionary", "size": "medium", "align": "center"}
+                    ]
+                },
+                "buttons": {"left": "Menu", "right": "Retry"},
+                "keys": {
+                    "OK": "set_state:clearing",
+                    "M2": "set_state:clearing",
                     "M1": "set_state:main_menu"
                 }
             }

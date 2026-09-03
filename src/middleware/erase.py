@@ -197,7 +197,7 @@ def _erase_magic_m1():
     return 'success'
 
 def _erase_std_m1(info_cache, on_progress=None):
-    """Standard MF1 card: fchk keys then wrbl zeros/transport to all blocks.
+    """Standard MF1 card: recover keys (fchk -> nested) then wrbl zeros/transport to all blocks.
 
     Binary source: WipeTagActivity.wipe_std_m1
     Trace: trace_erase_gen1a_and_standard.txt (1K) — 112 wrbl commands
@@ -237,42 +237,39 @@ def _erase_std_m1(info_cache, on_progress=None):
     else:
         sector_trailers = set(i * 4 + 3 for i in range(16))
 
-    # Key check (trace: timeout=600000ms)
+    # Key recovery on TARGET card (trace: timeout=600000ms)
     if on_progress:
         on_progress('chkdic', 0, 0)
-    size_flag = {0: '--mini', 1: '--1k', 2: '--2k', 4: '--4k'}.get(mf_type, '--1k')
-    # Ensure the MF Classic key dictionary file exists on disk —
-    # iceman PM3 fails with "can't find .dic" otherwise.  hfmfkeys.fchks()
-    # normally generates it during reads, but erase may run cold (no
-    # prior read in this boot) and /tmp is volatile across reboots.
-    key_file = '/tmp/.keys/mf_tmp_keys.dic'
-    try:
-        import hfmfkeys as _hfmfkeys
-        key_file = _hfmfkeys.genKeyFile('', list(_hfmfkeys.DEFAULT_KEYS))
-    except Exception:
-        pass
-    ret = executor.startPM3Task(
-        'hf mf fchk %s -f %s' % (size_flag, key_file), 600000)
-    cache = getattr(executor, 'CONTENT_OUT_IN__TXT_CACHE', '') or ''
+    # Run the SAME recovery pipeline reads/writes use (fchk -> nested, darkside
+    # only if zero keys) so custom-keyed cards can be authenticated for erase,
+    # not just dictionary-key cards.  keys() resolves the dictionary itself
+    # (learned user dic + the DEFAULT_KEYS), so no manual key
+    # file is needed here.  Per-sector keys are then read from KEYS_MAP.
+    size = {0: 320, 1: 1024, 2: 2048, 4: 4096}.get(mf_type, 1024)
+    sector_count = {0: 5, 1: 16, 2: 32, 4: 40}.get(mf_type, 16)
+    _uid_m0 = re.search(r'UID:\s*([0-9A-Fa-f ]+)', info_cache)
+    infos = {'uid': (_uid_m0.group(1).replace(' ', '').strip().upper()
+                     if _uid_m0 else '')}
 
-    # Check if any keys were found
-    fm = re.search(r'found\s+(\d+)/(\d+)\s+keys', cache)
-    if fm and int(fm.group(1)) == 0:
-        return 'no_keys'
-
-    # Extract per-sector keys from fchk output
-    # Trace (trace_original_full_20260410.txt): erase uses correct key per sector
-    # e.g. sectors 0-5 use 4a6352684677/536653644c65, sectors 6-15 use ffffffffffff
     keys_a = {}
     keys_b = {}
-    for km in re.finditer(
-            r'\|\s*(\d+)\s*\|\s*([0-9a-fA-F]{12})\s*\|\s*(\d)\s*\|'
-            r'\s*([0-9a-fA-F]{12})\s*\|\s*(\d)\s*\|', cache):
-        sec = int(km.group(1))
-        if km.group(3) == '1':
-            keys_a[sec] = km.group(2)
-        if km.group(5) == '1':
-            keys_b[sec] = km.group(4)
+    try:
+        import hfmfkeys as _hfmfkeys
+        _hfmfkeys.KEYS_MAP.clear()
+        _hfmfkeys.keys(size, infos, None)
+        for sec in range(sector_count):
+            ka = _hfmfkeys.getKey4Map(sec, 'A')
+            kb = _hfmfkeys.getKey4Map(sec, 'B')
+            if ka:
+                keys_a[sec] = ka
+            if kb:
+                keys_b[sec] = kb
+    except Exception:
+        pass
+
+    # No key recovered anywhere -> cannot authenticate the erase
+    if not keys_a and not keys_b:
+        return 'no_keys'
 
     # Fallback: sector 0 keys or default
     default_key_a = keys_a.get(0, 'ffffffffffff')

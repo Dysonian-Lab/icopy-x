@@ -5502,11 +5502,12 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
         key_max = data.get('keyCountMax', 0) if isinstance(data, dict) else 0
         seconds = data.get('seconds', 0) if isinstance(data, dict) else 0
 
-        # Timer string — ground truth: "01'08''" (MM'SS'')
+        # Timer string as MM:SS (was "01'08''"; apostrophe form read badly on
+        # the device screen — matches the Read Tag timer fix).
         if seconds and int(seconds) > 0:
             mm = int(seconds) // 60
             ss = int(seconds) % 60
-            timer = "%02d'%02d''" % (mm, ss)
+            timer = "%02d:%02d" % (mm, ss)
         else:
             timer = ''
 
