@@ -626,13 +626,24 @@ jobs:
           cp /tmp/iceman-linux/linux/* /tmp/clients-flash/linux/
           cp /tmp/iceman-windows/* /tmp/clients-flash/windows/
           cp /tmp/iceman-macos/* /tmp/clients-flash/macos/
-          # Shared data from Linux build (iceman lualibs/luascripts/resources)
-          for d in lualibs luascripts resources; do
-            [ -d /tmp/iceman-linux/$d ] && cp -r /tmp/iceman-linux/$d /tmp/clients-flash/
+          # Ship the client's data (resources/, dictionaries/, lualibs/,
+          # luascripts/) INSIDE each platform folder, next to the binary.
+          # The PM3 client resolves these relative to its own executable, so a
+          # single shared copy at the zip root was never found once the binary
+          # lived in a subfolder. On macOS this silently disabled the
+          # hardnested bitflip tables and benchmark data (issue #13).
+          for p in linux windows macos; do
+            for d in lualibs luascripts resources; do
+              [ -d /tmp/iceman-linux/$d ] && cp -r /tmp/iceman-linux/$d /tmp/clients-flash/$p/
+            done
+            if ls /tmp/iceman-linux/*.dic >/dev/null 2>&1; then
+              mkdir -p /tmp/clients-flash/$p/dictionaries
+              cp /tmp/iceman-linux/*.dic /tmp/clients-flash/$p/dictionaries/
+            fi
           done
-          cp /tmp/iceman-linux/*.dic /tmp/clients-flash/ 2>/dev/null || true
           cd /tmp/clients-flash && zip -r ${{ github.workspace }}/clients-flash.zip .
-          echo "=== clients-flash.zip ===" && find . -type d | sort
+          echo "=== clients-flash.zip layout ===" && find . -maxdepth 2 -type d | sort
+          echo "=== per-platform sizes ===" && du -sh /tmp/clients-flash/*/ | sort
 
       - name: Package clients-noflash.zip
         run: |
@@ -641,10 +652,15 @@ jobs:
           cp build/clients/factory/linux/proxmark3 /tmp/clients-noflash/linux/
           cp build/clients/factory/macos/proxmark3 /tmp/clients-noflash/macos/
           cp -r build/clients/factory/windows/* /tmp/clients-noflash/windows/
-          # Shared data (factory lualibs/luascripts/hardnested/json)
-          cp -r build/clients/factory/share/* /tmp/clients-noflash/
+          # Ship the factory client's data next to each binary, not at the zip
+          # root, so it is found relative to the executable on every platform
+          # (same root cause as the flash client — issue #13).
+          for p in linux windows macos; do
+            cp -r build/clients/factory/share/* /tmp/clients-noflash/$p/
+          done
           cd /tmp/clients-noflash && zip -r ${{ github.workspace }}/clients-noflash.zip .
-          echo "=== clients-noflash.zip ===" && find . -type d | sort
+          echo "=== clients-noflash.zip layout ===" && find . -maxdepth 2 -type d | sort
+          echo "=== per-platform sizes ===" && du -sh /tmp/clients-noflash/*/ | sort
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
