@@ -261,15 +261,27 @@ def collect_resources(res_dir):
 
 
 def collect_data(data_dir):
-    """Return list of (src_path, ipk_path) for data/ files (conf.ini etc)."""
+    """Return list of (src_path, ipk_path) for data/ files (conf.ini etc).
+
+    Walks data/ recursively so subtrees such as data/lang/ (language
+    translation .json files) are included, preserving their path relative
+    to data/ in the IPK (e.g. data/lang/en.json -> data/lang/en.json).
+    Skips __pycache__ and hidden/private directories.
+    """
     pairs = []
     if not os.path.isdir(data_dir):
         return pairs
 
-    for fname in sorted(os.listdir(data_dir)):
-        src = os.path.join(data_dir, fname)
-        if os.path.isfile(src):
-            pairs.append((src, f"data/{fname}"))
+    for dirpath, dirnames, filenames in os.walk(data_dir):
+        # Prune __pycache__ and hidden/private dirs; sort for determinism
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d != "__pycache__" and not d.startswith(".") and not d.startswith("_")
+        )
+        for fname in sorted(filenames):
+            src = os.path.join(dirpath, fname)
+            rel = os.path.relpath(src, data_dir).replace(os.sep, "/")
+            pairs.append((src, f"data/{rel}"))
 
     return pairs
 

@@ -147,6 +147,75 @@ def createTag(obj, tag):
 
 
 # =====================================================================
+# Text fitting utility
+# =====================================================================
+
+# Single-character horizontal ellipsis ('…').  Used as the truncation
+# marker so a clipped label still costs only one glyph of width.
+TEXT_ELLIPSIS = '…'
+
+
+def fit_text(text, max_px, base_font_size, min_font_size, measure_fn):
+    """Fit a single-line label into ``max_px`` pixels.
+
+    Longer-than-English strings (French translations, proxmark/system
+    text) overflow the fixed title and button zones on the 240px display.
+    This helper mirrors the device's own toast auto-shrink, applied to
+    single-line labels:
+
+    1. If the text already fits at ``base_font_size``, return it unchanged.
+    2. Otherwise shrink the font one point at a time toward
+       ``min_font_size`` and return the largest size that still fits.
+    3. If the text is *still* too wide at ``min_font_size``, drop
+       characters from the end and append a single-character ellipsis
+       ('…') until it fits — truncation is the last resort, after
+       shrinking.
+
+    The pixel measurement is injected as
+    ``measure_fn(text, font_size) -> int`` so the helper is unit-testable
+    without a live Tk canvas (in production the caller passes a wrapper
+    around ``tkinter.font.Font.measure``).
+
+    Args:
+        text: The label string.
+        max_px: Available width in pixels.
+        base_font_size: Preferred (largest) font size.
+        min_font_size: Smallest font size to shrink to before truncating.
+        measure_fn: Callable ``(text, font_size) -> pixel_width``.
+
+    Returns:
+        ``(fitted_text, font_size)`` — the possibly-truncated text and the
+        font size it should be drawn at.
+    """
+    base_font_size = int(base_font_size)
+    # Never shrink *up*: the floor is clamped to the base size so that a
+    # caller passing min > base still behaves sensibly (no shrinking).
+    floor = min(int(min_font_size), base_font_size)
+
+    if not text:
+        return text, base_font_size
+
+    # 1 + 2: find the largest size in [floor, base] whose width fits.
+    size = base_font_size
+    while size > floor and measure_fn(text, size) > max_px:
+        size -= 1
+
+    if measure_fn(text, size) <= max_px:
+        return text, size
+
+    # 3: still overflowing at the floor — ellipsis-truncate from the end.
+    ellipsis = TEXT_ELLIPSIS
+    truncated = text
+    while truncated and measure_fn(truncated + ellipsis, size) > max_px:
+        truncated = truncated[:-1]
+    if not truncated:
+        # Not even one character plus the ellipsis fits; show the marker
+        # alone rather than an empty string.
+        return ellipsis, size
+    return truncated + ellipsis, size
+
+
+# =====================================================================
 # ListView
 # =====================================================================
 
