@@ -1,9 +1,0 @@
-{
-    "name": "T55xx Wipe",
-    "version": "1.0.4",
-    "author": "Amec0e",
-    "description": "Wipe a T55xx tag with or without password",
-    "entry_class": "WipeT55xxPlugin",
-    "permissions": ["pm3"],
-    "order": 3
-}

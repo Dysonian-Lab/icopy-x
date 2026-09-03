@@ -1,9 +1,0 @@
-{
-    "name": "T55xx Detect",
-    "version": "1.0.5",
-    "author": "Amec0e",
-    "description": "Detect a T55xx tag with or without password and display configuration",
-    "entry_class": "T55xxDetectPlugin",
-    "permissions": ["pm3"],
-    "order": 5
-}

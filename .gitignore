@@ -36,3 +36,12 @@ docker_build*.sh
 fullimage.elf
 ipk_build.log
 proxmark3.exe
+
+# Editor / tooling scratch (not project files)
+.claude/
+.kilo/
+memory-bank/
+
+# Extracted IPK / local build output (not project files)
+ipk_extract/
+build/docker_fw_out/

@@ -1,9 +1,0 @@
-{
-    "name": "Manage Dictionaries",
-    "version": "1.0.2",
-    "author": "Amec0e",
-    "description": "Load default key/pwd dictionaries to the SD card and append custom keys",
-    "entry_class": "ManageDictionariesPlugin",
-    "permissions": [],
-    "order": 9
-}
