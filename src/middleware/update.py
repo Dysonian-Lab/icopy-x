@@ -62,6 +62,21 @@ _REQUIRED_EITHER = [
 _found_ipk = None
 
 
+def _is_hidden(name):
+    """Return True for hidden/metadata filesystem entries, not real artifacts.
+
+    macOS writes an AppleDouble sidecar (``._<name>``) next to every file it
+    copies onto a non-native filesystem such as the iCopy-X USB volume, and
+    adds directories like ``.Spotlight-V100``, ``.Trashes`` and ``.fseventsd``.
+    None of these are valid firmware artifacts.  A ``._<name>.ipk`` sidecar in
+    particular sorts ahead of the real ``<name>.ipk`` and would otherwise be
+    selected first, causing the flash to fail with error 0x05.  A legitimate
+    IPK or firmware file never begins with a dot, so skipping dot-prefixed
+    entries is safe.
+    """
+    return name.startswith('.')
+
+
 def search(path):
     """Search for .ipk firmware files in the given directory.
 
@@ -82,6 +97,10 @@ def search(path):
 
     try:
         for entry in sorted(os.listdir(path)):
+            if _is_hidden(entry):
+                # Skip macOS AppleDouble sidecars (._foo.ipk) and other
+                # hidden/metadata files that Finder writes onto the USB.
+                continue
             if entry.lower().endswith(_IPK_EXTENSION):
                 full_path = os.path.join(path, entry)
                 if os.path.isfile(full_path):
@@ -293,6 +312,10 @@ def _scan_fw_dir(keyword, extension):
     try:
         if os.path.exists(_FW_PATH):
             for f in os.listdir(_FW_PATH):
+                if _is_hidden(f):
+                    # Ignore macOS AppleDouble sidecars (._foo.pm3) and other
+                    # hidden files copied alongside real firmware.
+                    continue
                 if f.endswith(extension):
                     if keyword is None or keyword in f.lower():
                         results.append(os.path.join(_FW_PATH, f))
