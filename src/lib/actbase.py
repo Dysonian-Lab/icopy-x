@@ -148,7 +148,12 @@ class BaseActivity(Activity):
             self._drawTitleBar(base_title, color, page_text)
             self._is_title_inited = True
         else:
-            canvas.itemconfig(TAG_TITLE_TEXT, text=base_title)
+            page_reserve = (len(page_text) * 8 + 4) if page_text else 0
+            fitted_title, title_font = _fit_label(
+                base_title, _get_title_font(),
+                _title_max_px(page_reserve), TITLE_FONT_MIN)
+            canvas.itemconfig(
+                TAG_TITLE_TEXT, text=fitted_title, font=title_font)
             # Update page indicator in-place if it exists, create if not
             page_items = canvas.find_withtag('page_indicator:top')
             if page_text:
@@ -190,6 +195,11 @@ class BaseActivity(Activity):
 
         bg_color = color if color is not None else TITLE_BAR_BG
         font_spec = _get_title_font()
+
+        # Shrink / ellipsize a title too long for the bar (French, etc.)
+        page_reserve = (len(page_text) * 8 + 4) if page_text else 0
+        title, font_spec = _fit_label(
+            title, font_spec, _title_max_px(page_reserve), TITLE_FONT_MIN)
 
         # Background rectangle
         canvas.create_rectangle(
@@ -257,6 +267,8 @@ class BaseActivity(Activity):
         if text:
             self._setupButtonBg()
             font_spec, y = self._getBtnFontAndY()
+            text, font_spec = _fit_label(
+                text, font_spec, _BTN_LEFT_MAX_PX, BTN_FONT_MIN)
             canvas.create_text(
                 BTN_LEFT_X, y,
                 text=text, fill=color, anchor=BTN_LEFT_ANCHOR,
@@ -288,6 +300,8 @@ class BaseActivity(Activity):
         if text:
             self._setupButtonBg()
             font_spec, y = self._getBtnFontAndY()
+            text, font_spec = _fit_label(
+                text, font_spec, _BTN_RIGHT_MAX_PX, BTN_FONT_MIN)
             canvas.create_text(
                 BTN_RIGHT_X, y,
                 text=text, fill=color, anchor=BTN_RIGHT_ANCHOR,
@@ -687,3 +701,104 @@ def _get_page_font():
     Ground truth: original .so canvas item shows font='monospace 11'.
     """
     return 'monospace 11'
+
+
+# ----------------------------------------------------------------------
+# Long-string fit — shrink/ellipsize titles and buttons that overflow
+# ----------------------------------------------------------------------
+#
+# French (and system/proxmark) labels run longer than the English strings
+# the fixed title and button zones were sized for.  The pure fit helper
+# lives in lib.widget (unit-testable with an injected measurement); here
+# we apply it with the real ``tkinter.font.Font.measure`` and the actual
+# on-screen geometry.
+
+# Font-size floors: shrink no smaller than these before ellipsis-truncating.
+TITLE_FONT_MIN = 12
+BTN_FONT_MIN = 11
+
+# Per-button horizontal budget: each softkey may occupy up to the screen
+# centre — the left button grows right from BTN_LEFT_X, the right button
+# grows left from BTN_RIGHT_X — which keeps the two labels from colliding
+# and leaves the centre free for the page arrows.
+_BTN_LEFT_MAX_PX = SCREEN_W // 2 - BTN_LEFT_X
+_BTN_RIGHT_MAX_PX = BTN_RIGHT_X - SCREEN_W // 2
+
+
+def _title_max_px(page_reserve=0):
+    """Available width for the centred title text.
+
+    The title is drawn with anchor 'center' at ``TITLE_TEXT_X``, so to
+    avoid overflowing the left screen edge on one side and the battery /
+    page indicator on the other, the usable width is symmetric about the
+    anchor: twice the distance to whichever boundary is nearer.
+
+    Args:
+        page_reserve: Extra pixels to keep free on the right for a page
+            indicator (e.g. "1/4") when one is present.
+    """
+    left_margin = 4
+    right_gap = 4
+    right_limit = BATTERY_X - right_gap - page_reserve
+    half = min(TITLE_TEXT_X - left_margin, right_limit - TITLE_TEXT_X)
+    return max(0, 2 * half)
+
+
+def _parse_font_spec(spec):
+    """Split a Tk font spec into ``(family, size, weight)``.
+
+    Accepts the two shapes used across the UI: the ``'family size'``
+    string form (e.g. ``'mononoki 18'``) and the tuple form
+    (e.g. ``('mononoki', 16)`` or ``('mononoki', 16, 'bold')``).  Returns
+    ``size=None`` when the size cannot be determined.
+    """
+    if isinstance(spec, (tuple, list)):
+        family = spec[0]
+        size = int(spec[1]) if len(spec) > 1 else None
+        weight = spec[2] if len(spec) > 2 else 'normal'
+        return family, size, weight
+    if isinstance(spec, str):
+        family, _, tail = spec.rpartition(' ')
+        if family and tail.lstrip('-').isdigit():
+            return family, int(tail), 'normal'
+    return spec, None, 'normal'
+
+
+def _format_font_spec(original, family, size, weight):
+    """Rebuild a font spec in the same shape as ``original``."""
+    if isinstance(original, (tuple, list)):
+        if weight and weight != 'normal':
+            return (family, size, weight)
+        return (family, size)
+    return '%s %d' % (family, size)
+
+
+def _fit_label(text, font_spec, max_px, min_size):
+    """Shrink+ellipsize ``text`` to fit ``max_px`` using the real Tk font.
+
+    Returns ``(fitted_text, fitted_font_spec)``.  Falls back to the
+    original text and font when measurement is unavailable (no Tk root,
+    or an unparseable spec) so callers never have to guard the call site.
+    """
+    if not text or max_px <= 0:
+        return text, font_spec
+    family, base_size, weight = _parse_font_spec(font_spec)
+    if base_size is None:
+        return text, font_spec
+    try:
+        import tkinter.font as tkfont
+        from lib import widget
+        cache = {}
+
+        def measure(t, sz):
+            f = cache.get(sz)
+            if f is None:
+                f = tkfont.Font(family=family, size=int(sz), weight=weight)
+                cache[sz] = f
+            return f.measure(t)
+
+        fitted, size = widget.fit_text(
+            text, max_px, base_size, min_size, measure)
+    except Exception:
+        return text, font_spec
+    return fitted, _format_font_spec(font_spec, family, size, weight)
