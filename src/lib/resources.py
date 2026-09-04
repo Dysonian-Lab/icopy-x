@@ -107,6 +107,7 @@ class StringEN:
 
     title = {
         'language': 'Language',
+        'plugins': 'Plugins',
         'main_page': 'Main Page',
         'auto_copy': 'Auto Copy',
         'about': 'About',
@@ -569,6 +570,46 @@ def get_str(keys):
     return _resolve_key(keys)
 
 
+# Reverse index: English display string -> resource key. Built once from the
+# English pack; reset by force_check_str_res() when language files reload.
+_EN_REVERSE = None
+
+
+def _english_reverse_index():
+    """Map each English display string to a resource key (built lazily)."""
+    global _EN_REVERSE
+    if _EN_REVERSE is None:
+        idx = {}
+        sources = []
+        en_entry = _LANG_REGISTRY.get('en')
+        if en_entry is not None:
+            sources.append(_categories_of(en_entry))
+        sources.append(_EN_BUILTIN)
+        for cats in sources:
+            for d in cats.values():
+                for k, v in d.items():
+                    if isinstance(v, str) and v not in idx:
+                        idx[v] = k
+        _EN_REVERSE = idx
+    return _EN_REVERSE
+
+
+def tr(text):
+    """Translate an English display string into the active language.
+
+    Unlike get_str (which looks up by resource *key*), tr looks up by the
+    English *value*.  Use it for call sites that hold hard-coded English
+    labels rather than keys — e.g. the main-menu items.  English is a no-op,
+    and unknown text (plugin names, dynamic data) passes through unchanged.
+    """
+    if not isinstance(text, str) or _current_language == 'en':
+        return text
+    key = _english_reverse_index().get(text)
+    if key is None:
+        return text
+    return _resolve_key(key)
+
+
 def get_font(size=13, *args):
     """Return font specification string for given size.
 
@@ -684,8 +725,9 @@ def force_check_str_res():
     in-memory registry, so newly added or edited language files are picked up
     without reimporting the module.
     """
-    global _LANG_REGISTRY
+    global _LANG_REGISTRY, _EN_REVERSE
     _LANG_REGISTRY = _load_languages()
+    _EN_REVERSE = None
     return None
 
 

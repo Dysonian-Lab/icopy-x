@@ -3,6 +3,7 @@
   "_font": "mononoki",
   "title": {
     "language": "Language",
+    "plugins": "Plugins",
     "main_page": "Main Page",
     "auto_copy": "Auto Copy",
     "about": "About",

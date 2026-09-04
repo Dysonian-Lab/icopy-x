@@ -186,7 +186,7 @@ class MainActivity(BaseActivity):
             self.lv_main_page = ListView(
                 canvas, xy=xy, text_size=text_size, item_height=LIST_ITEM_H,
             )
-            labels = [item[0] for item in self._menu_items]
+            labels = [resources.tr(item[0]) for item in self._menu_items]
             self.lv_main_page.setItems(labels)
             icons = [item[1] for item in self._menu_items]
             self.lv_main_page.setIcons(icons)
