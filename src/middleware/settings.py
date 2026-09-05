@@ -188,3 +188,25 @@ def setScreenMirror(value):
         value: int 0=disabled, 1=enabled
     """
     config.setKeyValue('screen_mirror', str(int(value)))
+
+
+def getLanguage():
+    """Get the configured UI language code.
+
+    Returns:
+        str: language code (e.g. 'en', 'fr'); default 'en'
+    """
+    return config.getValue('language', 'en')
+
+
+def setLanguage(code):
+    """Set the UI language.
+
+    The saved language is applied at boot — application.startApp() reads
+    this value and calls resources.setLanguage() before the first screen
+    builds — and is applied live when picked from the Settings menu.
+
+    Args:
+        code: language-code string (e.g. 'en', 'fr')
+    """
+    config.setKeyValue('language', str(code))

@@ -241,13 +241,61 @@ def gen1afreeze():
 # Strings: __pyx_k_hf_mf_cload_b, __pyx_k_Card_loaded_d_blocks_from_file,
 #          __pyx_k_Can_t_set_magic_card_block
 # ---------------------------------------------------------------------------
+def _normalize_gen1a_sak(infos, file):
+    """Force block-0 SAK to 08 on a just-loaded Gen1a card.
+
+    A dump may carry SAK 0x88 (Infineon / magic 1K sets the high bit); most
+    access readers won't select a card advertising 0x88, so rewrite block 0
+    with SAK 0x08.  The UID is sourced from a fresh `hf 14a info` (post-cload
+    the card carries the dump's UID); ATQA is fixed at 0004 (Gen1a MIFARE
+    Classic is always 1K).  `hf mf csetuid` keeps UID/BCC/manufacturer bytes
+    and changes only the SAK/ATQA.
+
+    Records the resulting block 0 in infos['gen1a_written_b0'] so verify()
+    checks the card against what we actually wrote, not the dump's block 0.
+
+    Gen1a MIFARE Classic is 1K only, so 08 is always the correct SAK and no
+    size handling is needed.  No-op if the card UID can't be read.
+    """
+    import re as _re
+
+    # Source the UID from the live card (post-cload it carries the dump's UID).
+    executor.startPM3Task('hf 14a info', 10000)
+    text = executor.CONTENT_OUT_IN__TXT_CACHE or ''
+    m_uid = _re.search(r'UID:\s*([0-9A-Fa-f ]+)', text)
+    if not m_uid:
+        return
+    uid = m_uid.group(1).replace(' ', '').upper()
+
+    cmd = 'hf mf csetuid -u {} --atqa 0004 --sak 08'.format(uid)
+    ret = executor.startPM3Task(cmd, 10000)
+    if ret == -1:
+        return
+    if executor.hasKeyword("Can't set UID"):
+        return
+    out = executor.CONTENT_OUT_IN__TXT_CACHE or ''
+    m_b0 = _re.search(r'new block 0[.\s]*([0-9A-Fa-f]{32})', out)
+    if m_b0:
+        infos['gen1a_written_b0'] = m_b0.group(1).upper()
+    else:
+        # csetuid succeeded but the echo shape changed — reconstruct expected
+        # block 0 from the dump: SAK forced to 08, ATQA fixed at 0004 (stored
+        # little-endian as 0400), UID/BCC/manufacturer bytes preserved.
+        dump_b0 = _dump_uid(infos, file)
+        if dump_b0 and len(dump_b0) >= 32:
+            infos['gen1a_written_b0'] = (dump_b0[:10] + '08' + '0400'
+                                         + dump_b0[16:]).upper()
+
+
+
 def write_with_gen1a(infos, file):
     """Write entire dump to Gen1a card via cload.
 
     Spec §2.6:
         1. hf mf cload b {file}
         2. Check 'Card loaded' in response
-        3. gen1afreeze()
+        3. force block-0 SAK to 08 via csetuid
+        4. gen1afreeze()
 
     Returns 1 on success, -1 on failure.
     """
@@ -260,6 +308,10 @@ def write_with_gen1a(infos, file):
         return -1
     if not executor.hasKeyword('Card loaded'):
         return -1
+
+    # Force block-0 SAK to 08 before sealing so readers will select the clone
+    # (dumps often carry 0x88); records infos['gen1a_written_b0'] for verify().
+    _normalize_gen1a_sak(infos, file)
 
     gen1afreeze()
     return 1
@@ -288,10 +340,21 @@ def write_with_gen1a_only_uid(infos):
 
 # ---------------------------------------------------------------------------
 # write_with_standard — per-block write in reverse sector order
+# SHARED by standard (non-magic) AND Gen 2 / CUID cards: both use the exact
+# same command sequence (every block via write_block, which always passes
+# --force), so a single function serves both. The write path does not branch
+# on card type; the only Gen2-specific behaviour lives in verify_gen2, which
+# reads the block-success counts this function records in infos for every
+# write. (Gen1a is the one genuinely different path — see write_with_gen1a.)
 # Trace: blocks 60,61,62, 56,57,58, ..., 4,5,6, 0,1,2, then 63,59,...,3
 # ---------------------------------------------------------------------------
 def write_with_standard(infos, file, listener):
-    """Write to standard (non-magic) MIFARE Classic card.
+    """Write to a standard or Gen 2 / CUID MIFARE Classic card.
+
+    Standard and Gen2 are written identically: the per-block writer always
+    passes --force, so block 0 is attempted on both. On a standard card the
+    manufacturer block is hardware read-only (UID unchanged); on a Gen2 it is
+    writable (UID becomes the dump's). Same commands, different card silicon.
 
     Trace (trace_write_activity_attrs_20260402.txt):
         1. Data blocks: reverse sector order, skip trailers
@@ -304,6 +367,9 @@ def write_with_standard(infos, file, listener):
     is the real manufacturer block from the source card dump.
     Block 0 fallback chain: .bin → JSON blocks["0"] → EMPTY_DATA.
     All other blocks fall back to EMPTY_DATA / EMPTY_TRAI.
+
+    Records 'write_block_count' / 'write_block_total' in infos (used by
+    verify_gen2) regardless of card type.
 
     Returns 1 if all blocks succeeded, -1 if any block failed.
     """
@@ -326,7 +392,6 @@ def write_with_standard(infos, file, listener):
     for sector in range(sector_count - 1, -1, -1):
         first_block = mifare.sectorToBlock(sector)
         blocks_in_sector = mifare.getBlockCountInSector(sector)
-        trailer_block = first_block + blocks_in_sector - 1
 
         key_a = hfmfkeys.getKey4Map(sector, 'A') if hfmfkeys else None
         key_b = hfmfkeys.getKey4Map(sector, 'B') if hfmfkeys else None
@@ -401,6 +466,15 @@ def write_with_standard(infos, file, listener):
         progress += 1
         call_progress(listener, progress, total_blocks)
 
+    # Store block counts in infos so verify_gen2 works even when a Gen2 card
+    # was written down this (standard) path — i.e. it was not detected as Gen2
+    # at write time (its keys were non-default so the FFFF magic probe missed
+    # Store block counts in infos so verify_gen2 works for whichever card
+    # type took this path — standard OR a Gen2 that reached here. Recorded
+    # before the write_fail return so a partial write reports truly.
+    infos['write_block_count'] = len(write_success_list)
+    infos['write_block_total'] = total_blocks
+
     # Original .so returns -1 if ANY block failed to write
     if write_fail:
         return -1
@@ -408,115 +482,6 @@ def write_with_standard(infos, file, listener):
         return 1
     return -1
 
-# ---------------------------------------------------------------------------
-# write_with_gen2 — per-block write for Gen 2 / CUID magic cards
-# Mirrors write_with_standard exactly but stores block success count in
-# infos for verify_gen2 to check against total_blocks.
-# ---------------------------------------------------------------------------
-def write_with_gen2(infos, file, listener):
-    """Write to Gen 2 / CUID magic card.
-
-    Identical write path to write_with_standard — block 0 is directly
-    writable on Gen2 via key auth + --force so no special commands needed.
-    Isolated from write_with_standard so the block success count can be
-    stored in infos without affecting the standard card write path.
-
-    Stores in infos on completion:
-        'write_block_count' — number of blocks that returned Write ( ok )
-        'write_block_total' — total blocks expected for this card size
-
-    verify_gen2() reads these to confirm all blocks wrote successfully
-    without needing a card dump or block comparison.
-
-    Returns 1 on full success, -1 if any block failed.
-    """
-    blocks = read_blocks_4file(infos, file)
-
-    typ = infos.get('type', 1)
-    size = hfmfread.sizeGuess(typ)
-    sector_count = mifare.getSectorCount(size)
-    total_blocks = sum(mifare.getBlockCountInSector(s) for s in range(sector_count))
-
-    progress = 0
-    write_success_list = []
-    write_fail = False
-
-    # --- Phase 1: Write data blocks (reverse sector order) ---
-    for sector in range(sector_count - 1, -1, -1):
-        first_block = mifare.sectorToBlock(sector)
-        blocks_in_sector = mifare.getBlockCountInSector(sector)
-
-        key_a = hfmfkeys.getKey4Map(sector, 'A') if hfmfkeys else None
-        key_b = hfmfkeys.getKey4Map(sector, 'B') if hfmfkeys else None
-
-        for offset in range(blocks_in_sector - 1):
-            block_num = first_block + offset
-
-            if block_num == 0 and 0 not in blocks:
-                block_data = _read_block0_from_json(file) or mifare.EMPTY_DATA
-            else:
-                block_data = blocks.get(block_num, mifare.EMPTY_DATA)
-
-            written = False
-            use_key_a = key_a or mifare.EMPTY_KEY
-            for _attempt in range(3):
-                ret = write_block(block_num, 'A', use_key_a, block_data)
-                if ret == 1:
-                    written = True
-                    break
-            if not written and key_b:
-                ret = write_block(block_num, 'B', key_b, block_data)
-                if ret == 1:
-                    written = True
-
-            if written:
-                write_success_list.append(block_num)
-            else:
-                write_fail = True
-
-            progress += 1
-            call_progress(listener, progress, total_blocks)
-
-    # --- Phase 2: Write trailer blocks (reverse sector order) ---
-    for sector in range(sector_count - 1, -1, -1):
-        first_block = mifare.sectorToBlock(sector)
-        blocks_in_sector = mifare.getBlockCountInSector(sector)
-        trailer_block = first_block + blocks_in_sector - 1
-
-        key_a = hfmfkeys.getKey4Map(sector, 'A') if hfmfkeys else None
-        key_b = hfmfkeys.getKey4Map(sector, 'B') if hfmfkeys else None
-
-        trailer_data = blocks.get(trailer_block, mifare.EMPTY_TRAI)
-
-        written = False
-        use_key_a = key_a or mifare.EMPTY_KEY
-        for _attempt in range(3):
-            ret = write_block(trailer_block, 'A', use_key_a, trailer_data)
-            if ret == 1:
-                written = True
-                break
-        if not written and key_b:
-            ret = write_block(trailer_block, 'B', key_b, trailer_data)
-            if ret == 1:
-                written = True
-
-        if written:
-            write_success_list.append(trailer_block)
-        else:
-            write_fail = True
-
-        progress += 1
-        call_progress(listener, progress, total_blocks)
-
-    # Store block counts in infos for verify_gen2
-    infos['write_block_count'] = len(write_success_list)
-    infos['write_block_total'] = total_blocks
-
-    if write_fail:
-        return -1
-    if write_success_list:
-        return 1
-    return -1
 
 # ---------------------------------------------------------------------------
 # write_common — main dispatch (DRM → gen1a detect → write)
@@ -527,7 +492,7 @@ def write_common(listener, infos, bundle):
     Trace sequence:
         1. hf 14a info (card present)
         2. hf mf cgetblk 0 (gen1a detect)
-        3. hf mf fchk (key verify)
+        3. key recovery (fchk -> nested) on TARGET card
         4. write_with_gen1a or write_with_standard
         5. hf 14a info (post-write check)
         6. hf mf cgetblk 0 (post-write gen1a check)
@@ -616,26 +581,44 @@ def write_common(listener, infos, bundle):
     if not probe_conclusive and infos.get('gen1a', False):
         is_gen1a = True
 
-    # Step 3: Key verification on TARGET card (only for standard path)
-    # Ground truth (trace_original_full_20260410.txt): the original firmware
-    # ALWAYS runs fchk during write, even if keys are in the map from the
-    # read phase.  The read-phase keys belong to the SOURCE card — the
-    # TARGET card may have different keys.  Clear the map and re-check.
+    # Step 3: Key recovery on TARGET card (standard + Gen2 paths)
+    # The read-phase keys belong to the SOURCE card, and the TARGET card may
+    # carry non-default keys the dictionary alone can't find.  Run the SAME
+    # recovery pipeline reads use (fchk -> nested, darkside only if zero keys)
+    # rather than fchk alone, so custom-keyed targets can be authenticated and
+    # written.  Clear the map first so only TARGET keys are used.
     if not is_gen1a:
         typ = infos.get('type', 1)
         size = hfmfread.sizeGuess(typ)
         if hfmfkeys:
             hfmfkeys.KEYS_MAP.clear()
-            hfmfkeys.fchks(infos, size)
+            hfmfkeys.keys(size, infos, listener)
+            # Preflight: every sector must have at least one recovered key
+            # (A or B) before we commit to writing.  A sector with zero keys
+            # cannot be authenticated, so every block in it fails and the
+            # writer would return -1 only after a partial write.  Abort up
+            # front instead.  (A single key may still fail the trailer under a
+            # default ACL, but that is ACL-dependent and cannot be known
+            # without probing the target, so it is not gated here.)
+            sc = mifare.getSectorCount(size) if mifare else 0
+            if sc and any(not hfmfkeys.hasKeyA(s) and not hfmfkeys.hasKeyB(s)
+                          for s in range(sc)):
+                return -1
 
     # Step 4: Dispatch to write path
     file_path = bundle if isinstance(bundle, str) else ''
 
     if is_gen1a and not is_gen2:
+        # Record the write-time path so verify() can detect Gen1a reliably
+        # (a post-write cgetblk re-probe can false-negative once the card is
+        # sealed by gen1afreeze()).  Cleared on the else branch so a stale
+        # True can't leak across AutoCopy iterations into a Gen2/standard card.
+        infos['gen1a_written'] = True
         result = write_with_gen1a(infos, file_path)
-    elif is_gen2:
-        result = write_with_gen2(infos, file_path, listener)
     else:
+        infos['gen1a_written'] = False
+        # Standard and Gen2 share one write path (write_with_standard records the
+        # block counts verify_gen2 reads).
         result = write_with_standard(infos, file_path, listener)
 
     # Step 5: Post-write card check
@@ -677,7 +660,7 @@ def write(listener, infos, bundle):
 def verify_gen2(infos):
     """Verify Gen 2 / CUID write by checking all blocks returned Write ( ok ).
 
-    write_with_gen2 stores 'write_block_count' and 'write_block_total' in
+    write_with_standard stores 'write_block_count' and 'write_block_total' in
     infos during the write. verify_gen2 simply confirms the count matches
     the total — if all 64 blocks (1K) reported Write ( ok ) the write was
     successful. No PM3 commands needed.
@@ -689,6 +672,30 @@ def verify_gen2(infos):
     if total > 0 and count == total:
         return 1
     return -1
+
+
+# ---------------------------------------------------------------------------
+# _dump_uid — UID-bearing block 0 hex from the dump
+# ---------------------------------------------------------------------------
+def _dump_uid(infos, bundle):
+    """Return block 0 hex (uppercase) from the dump, or '' if unavailable.
+
+    Block 0 begins with the tag UID, so callers prefix-match the card's
+    current UID against it.  Used by verify() to confirm a Gen2 clone
+    actually took the source (dump) UID.
+    """
+    file = bundle if isinstance(bundle, str) else ''
+    if not file:
+        return ''
+    try:
+        b0 = read_blocks_4file(infos, file).get(0)
+        if not b0:
+            b0 = _read_block0_from_json(file)
+        if b0 and len(b0) >= 8:
+            return b0.upper()
+    except Exception:
+        pass
+    return ''
 
 
 # ---------------------------------------------------------------------------
@@ -706,15 +713,11 @@ def verify(infos, bundle):
         card is present and UID matches.
 
     Gen 2 / CUID cards route to verify_gen2() — checks write_block_count
-    vs write_block_total stored in infos by write_with_gen2.
+    vs write_block_total stored in infos by write_with_standard.
 
     Returns 1 on success, -1 on failure.
     """
     try:
-        # Route Gen2 to block count verify
-        if infos.get('gen2', False):
-            return verify_gen2(infos)
-
         # Pre-check: card still on antenna
         ret = executor.startPM3Task('hf 14a info', 10000)
         if ret == -1:
@@ -725,9 +728,15 @@ def verify(infos, bundle):
         if ret == -1:
             return -1
 
+        # Full info text (same source write_common uses) — needed for the
+        # Gen2 magic re-detect below.
+        text_14a = executor.CONTENT_OUT_IN__TXT_CACHE or ''
+
         # Extract UID from hf 14a info output
         card_uid = None
         content = executor.getPrintContent() if hasattr(executor, 'getPrintContent') else ''
+        if not content:
+            content = text_14a
         if not content:
             content = executor.getContentFromRegex(r'UID:\s*([\dA-Fa-f ]+)') or ''
         import re
@@ -735,10 +744,58 @@ def verify(infos, bundle):
         if m:
             card_uid = m.group(1).replace(' ', '').upper()
 
+        # Preflight Gen2 re-detect: the write-time probe can miss the magic
+        # line, leaving infos['gen2'] unset and routing verify down the
+        # standard (UID-unchanged) path.  Re-check the magic string from this
+        # fresh info text so a Gen2 is verified as a Gen2 even if the flag
+        # was missed at write time.
+        is_gen2 = bool(infos.get('gen2', False)) or \
+            ('Magic capabilities... Gen 2 / CUID' in text_14a)
+
         # Gen1a probe (matches original trace exactly)
         executor.startPM3Task('hf mf cgetblk --blk 0', 10000)
+        gen1a_probe_text = executor.CONTENT_OUT_IN__TXT_CACHE or ''
 
-        # Compare UID with expected
+        if is_gen2:
+            # Gen2 verify: block-count check AND the card must now carry the
+            # DUMP's UID.  A Gen2 uses the SAME write commands as standard;
+            # the only post-write difference is that block 0 is writable via
+            # --force, so a successful clone changes the UID to the source's.
+            # BOTH must pass.
+            if verify_gen2(infos) != 1:
+                return -1
+            dump_b0 = _dump_uid(infos, bundle)
+            if card_uid and dump_b0 and (dump_b0.startswith(card_uid)
+                                         or card_uid.startswith(dump_b0)):
+                return 1
+            return -1
+
+        # Gen1a verify: cload rewrote block 0 via the backdoor (UID becomes the
+        # dump's) and write_with_gen1a's csetuid then forced the block-0 SAK to
+        # 08, so the card no longer matches the dump's block 0 — compare against
+        # what we actually wrote (infos['gen1a_written_b0']), never the dump.  Prefer a full block-0 read-back from the cgetblk
+        # probe above; fall back to a UID-prefix match if the backdoor doesn't
+        # answer (e.g. a sealed card).  Detection uses the write-time flag, not
+        # a re-probe, because gen1afreeze() can seal a UFUID card.
+        if infos.get('gen1a_written', False):
+            ref_b0 = (infos.get('gen1a_written_b0')
+                      or _dump_uid(infos, bundle) or '').upper()
+            if not ref_b0:
+                return -1
+            m_card_b0 = re.search(
+                r'(?:Block\s*0\s*:|data:|^\s*0\s*\|)\s*([0-9A-Fa-f ]{32,})',
+                gen1a_probe_text, re.MULTILINE)
+            if m_card_b0:
+                card_b0 = m_card_b0.group(1).replace(' ', '').upper()[:32]
+                if card_b0 == ref_b0:
+                    return 1
+            if card_uid and (ref_b0.startswith(card_uid)
+                             or card_uid.startswith(ref_b0)):
+                return 1
+            return -1
+
+        # Standard path (unchanged): the UID does not change on a write, so
+        # compare the card's UID against the pre-write target UID.
         expected_uid = (infos.get('uid') or '').upper()
         if card_uid and expected_uid and card_uid.startswith(expected_uid):
             return 1

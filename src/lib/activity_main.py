@@ -58,6 +58,7 @@ from lib._constants import (
     CONTENT_H,
     LIST_ITEM_H,
     NORMAL_TEXT_COLOR,
+    SELECT_BG,
     COLOR_ACCENT,
     COLOR_BLACK,
     KEY_UP,
@@ -454,12 +455,17 @@ class VolumeActivity(BaseActivity):
 # ═══════════════════════════════════════════════════════════════════════
 
 class SettingsMenuActivity(BaseActivity):
-    """Settings menu with image-based toggle items.
+    """Settings menu with selectable rows.
 
-    Currently contains: Mirror Screen? toggle.
-    Layout: label text on the left, enabled/disabled icon on the right.
-    OK key toggles the current item. PWR exits.
-    Uses res/img/enabled.png and res/img/disabled.png for toggle state.
+    Rows:
+        Screen Mirroring — label on the left, enabled/disabled icon on the
+                           right; OK toggles it in place.
+        Language         — label on the left, active language name on the
+                           right; OK opens LanguageActivity to pick one.
+
+    UP/DOWN move the selection between rows, OK acts on the current row,
+    PWR exits.  Uses res/img/enabled.png and res/img/disabled.png for the
+    mirror toggle state.
     """
 
     ACT_NAME = 'settings_menu'
@@ -469,8 +475,14 @@ class SettingsMenuActivity(BaseActivity):
         '/mnt/sdcard/root2/root/home/pi/ipk_app_main/res/img',
     ]
 
+    # Row indices
+    _ROW_MIRROR = 0
+    _ROW_LANGUAGE = 1
+    _ROW_COUNT = 2
+
     def __init__(self, bundle=None):
         self._mirror_state = False
+        self._selected = 0
         self._tk_img = None  # prevent GC of PhotoImage
         super().__init__(bundle)
 
@@ -490,37 +502,95 @@ class SettingsMenuActivity(BaseActivity):
         return None
 
     def onCreate(self, bundle=None):
-        self.setTitle(resources.get_str('settings'))
-        self.setLeftButton('')
-        self.setRightButton('')
-
-        canvas = self.getCanvas()
-        if canvas is None:
-            return
-
-        # Load current state
+        # Load current mirror state
         try:
             import settings as _settings
             self._mirror_state = bool(_settings.getScreenMirror())
         except Exception:
             self._mirror_state = False
 
-        # Draw label — left-aligned, first item row
-        item_y = CONTENT_Y0 + LIST_ITEM_H // 2
+        self._render()
+
+    def onResume(self):
+        """Redraw on resume so labels re-render after a language change.
+
+        Returning from LanguageActivity leaves this activity's canvas
+        intact but showing the previous language; re-rendering here picks
+        up the newly selected language for every label.
+        """
+        super().onResume()
+        if self.getCanvas() is not None:
+            self._render()
+
+    def _row_center_y(self, row):
+        """Vertical centre of *row* within the content area."""
+        return CONTENT_Y0 + row * LIST_ITEM_H + LIST_ITEM_H // 2
+
+    def _current_language_name(self):
+        """Human-readable name of the active language (falls back to code)."""
+        code = resources.getLanguage()
+        for entry in resources.list_languages():
+            if entry.get('code') == code:
+                return entry.get('name', code)
+        return code
+
+    def _render(self):
+        """(Re)draw the title and both settings rows."""
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+
+        # Title + buttons (re-set so the title tracks the active language)
+        self.setTitle(resources.get_str('settings'))
+        self.setLeftButton('')
+        self.setRightButton('')
+
+        canvas.delete('settings_row')
+        canvas.delete('settings_toggle')
+
+        # Selection highlight behind the active row
+        row_y0 = CONTENT_Y0 + self._selected * LIST_ITEM_H
+        canvas.create_rectangle(
+            0, row_y0,
+            SCREEN_W, row_y0 + LIST_ITEM_H,
+            fill=SELECT_BG,
+            outline=SELECT_BG,
+            tags='settings_row',
+        )
+
+        # Row labels (left side)
         canvas.create_text(
-            15, item_y,
+            15, self._row_center_y(self._ROW_MIRROR),
             text=resources.get_str('screen_mirroring'),
             fill=NORMAL_TEXT_COLOR,
             font=resources.get_font(14),
             anchor='w',
-            tags='settings_label',
+            tags='settings_row',
+        )
+        canvas.create_text(
+            15, self._row_center_y(self._ROW_LANGUAGE),
+            text=resources.get_str('language'),
+            fill=NORMAL_TEXT_COLOR,
+            font=resources.get_font(14),
+            anchor='w',
+            tags='settings_row',
         )
 
-        # Draw toggle image on right side
+        # Language value (right side)
+        canvas.create_text(
+            SCREEN_W - 15, self._row_center_y(self._ROW_LANGUAGE),
+            text=self._current_language_name(),
+            fill=NORMAL_TEXT_COLOR,
+            font=resources.get_font(14),
+            anchor='e',
+            tags='settings_row',
+        )
+
+        # Mirror toggle icon (right side)
         self._draw_toggle()
 
     def _draw_toggle(self):
-        """Draw the toggle icon based on current state."""
+        """Draw the mirror toggle icon based on current state."""
         canvas = self.getCanvas()
         if canvas is None:
             return
@@ -528,7 +598,7 @@ class SettingsMenuActivity(BaseActivity):
         self._tk_img = self._load_toggle_image(self._mirror_state)
         if self._tk_img is not None:
             toggle_x = SCREEN_W - 15
-            toggle_y = CONTENT_Y0 + LIST_ITEM_H // 2
+            toggle_y = self._row_center_y(self._ROW_MIRROR)
             canvas.create_image(
                 toggle_x, toggle_y,
                 image=self._tk_img,
@@ -536,19 +606,114 @@ class SettingsMenuActivity(BaseActivity):
                 tags='settings_toggle',
             )
 
+    def _toggle_mirror(self):
+        """Flip the screen-mirror setting and persist it."""
+        self._mirror_state = not self._mirror_state
+        try:
+            import settings as _settings
+            _settings.setScreenMirror(1 if self._mirror_state else 0)
+        except Exception:
+            pass
+        self._draw_toggle()
+
     def onKeyEvent(self, key):
-        if key == KEY_OK:
-            self._mirror_state = not self._mirror_state
-            try:
-                import settings as _settings
-                _settings.setScreenMirror(1 if self._mirror_state else 0)
-            except Exception:
-                pass
-            self._draw_toggle()
+        if key == KEY_UP:
+            if self._selected > 0:
+                self._selected -= 1
+                self._render()
+        elif key == KEY_DOWN:
+            if self._selected < self._ROW_COUNT - 1:
+                self._selected += 1
+                self._render()
+        elif key == KEY_OK:
+            if self._selected == self._ROW_MIRROR:
+                self._toggle_mirror()
+            elif self._selected == self._ROW_LANGUAGE:
+                actstack.start_activity(LanguageActivity)
         elif key == KEY_PWR:
             if self._handlePWR():
                 return
             self.finish()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# LanguageActivity
+# ═══════════════════════════════════════════════════════════════════════
+
+class LanguageActivity(BaseActivity):
+    """Language picker — radio list of the installed languages.
+
+    Lists resources.list_languages(), marks the active one, and on OK
+    applies the choice: resources.setLanguage(code) for the live UI plus
+    settings.setLanguage(code) to persist it (config key ``language``).
+    Finishing returns to the settings menu, which re-renders its labels
+    in the newly selected language.  PWR cancels without changing it.
+
+    Mirrors the BacklightActivity/VolumeActivity CheckedListView pattern.
+    """
+
+    ACT_NAME = 'language'
+
+    def onCreate(self, bundle=None):
+        # Discover installed languages
+        self._languages = resources.list_languages()
+        self._codes = [entry.get('code') for entry in self._languages]
+        self._labels = [entry.get('name', entry.get('code'))
+                        for entry in self._languages]
+
+        # Locate the active language for the radio selection
+        active = resources.getLanguage()
+        try:
+            self._active_idx = self._codes.index(active)
+        except ValueError:
+            self._active_idx = 0
+
+        self.setTitle(resources.get_str('language'))
+        self.setLeftButton('')
+        self.setRightButton('')
+
+        canvas = self.getCanvas()
+        if canvas is None:
+            return
+
+        self._listview = CheckedListView(canvas)
+        self._listview.setItems(self._labels)
+        self._listview.setSelection(self._active_idx)
+        self._listview.check(self._active_idx)
+        self._listview.show()
+
+    def onKeyEvent(self, key):
+        if key == KEY_UP:
+            if hasattr(self, '_listview'):
+                self._listview.prev()
+        elif key == KEY_DOWN:
+            if hasattr(self, '_listview'):
+                self._listview.next()
+        elif key in (KEY_M2, KEY_OK):
+            self._choose()
+        elif key == KEY_PWR:
+            if self._handlePWR():
+                return
+            self.finish()
+
+    def _choose(self):
+        """Apply and persist the selected language, then return."""
+        if not hasattr(self, '_listview') or not self._codes:
+            self.finish()
+            return
+
+        selected = self._listview.selection()
+        code = self._codes[selected]
+
+        # Apply live so labels re-render, and persist for the next boot.
+        resources.setLanguage(code)
+        try:
+            import settings as _settings
+            _settings.setLanguage(code)
+        except Exception:
+            pass
+
+        self.finish()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -5502,11 +5667,12 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
         key_max = data.get('keyCountMax', 0) if isinstance(data, dict) else 0
         seconds = data.get('seconds', 0) if isinstance(data, dict) else 0
 
-        # Timer string — ground truth: "01'08''" (MM'SS'')
+        # Timer string as MM:SS (was "01'08''"; apostrophe form read badly on
+        # the device screen — matches the Read Tag timer fix).
         if seconds and int(seconds) > 0:
             mm = int(seconds) // 60
             ss = int(seconds) % 60
-            timer = "%02d'%02d''" % (mm, ss)
+            timer = "%02d:%02d" % (mm, ss)
         else:
             timer = ''
 

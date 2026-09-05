@@ -118,19 +118,17 @@ def _read_mfc(infos, listener):
         hfmfread.cacheFile(bin_path)
         return (1, bin_path)
 
-    # Standard: key recovery then sector reading
+    # Standard: key recovery then sector reading.
+    # The recovery pipeline's first step IS the dictionary check (the labelled
+    # "ChkDIC" fchk), so we enter it directly instead of running a separate,
+    # unlabelled pre-check that would scan the full dictionary a second time.
+    # keys() short-circuits right after that first fchk if it found them all.
     infos['gen1a'] = False
-    ret = hfmfkeys.fchks(infos, size, with_call=True)
-    if ret == -1:
-        # fchk timed out — propagate failure
-        return (-1, '')
-
-    if not hfmfkeys.hasAllKeys(size):
-        hfmfkeys.keys(size, infos, listener)
-        if not hfmfkeys.hasAllKeys(size) and not hfmfkeys.getAnyKey():
-            # Zero keys found — key recovery completely failed
-            # Ground truth: activity_read.py:562-566 — ret_code -4 → WarningM1Activity (M1:Sniff)
-            return (-4, '')
+    hfmfkeys.keys(size, infos, listener)
+    if not hfmfkeys.hasAllKeys(size) and not hfmfkeys.getAnyKey():
+        # Zero keys found — key recovery completely failed
+        # Ground truth: activity_read.py:562-566 — ret_code -4 → WarningM1Activity (M1:Sniff)
+        return (-4, '')
 
     data_list = hfmfread.readAllSector(size, infos, listener)
 

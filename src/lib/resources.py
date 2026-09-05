@@ -27,16 +27,33 @@ Exports the EXACT same API as the original Cython-compiled resources.so module.
 All string values are copied from the verified QEMU shim (tools/qemu_shims/resources.py)
 and cross-checked against .so binary string dumps.
 
+UI strings load from data/lang/<code>.json (one file per language, keyed by
+the filename stem).  Every file is read into an in-memory registry at import
+time; the hardcoded StringEN / StringZH classes remain as a built-in fallback
+for missing files or absent keys.
+
 Classes: StringEN, StringZH, StringXSC, DrawParEN, DrawParZH
 Functions: get_str, get_font, get_font_force_en, get_font_force_zh, get_font_type,
            get_text_size, get_xy, get_int, get_par, get_fws,
-           force_check_str_res, is_keys_same, getLanguage, setLanguage
+           force_check_str_res, is_keys_same, getLanguage, setLanguage,
+           list_languages
 """
+
+import json
+import os
+import sys
 
 # ---------------------------------------------------------------------------
 # Language state
 # ---------------------------------------------------------------------------
-_current_language = 0  # 0 = EN, 1 = ZH
+# The active language is stored as a language *code* (the stem of the JSON
+# file in data/lang/, e.g. 'en', 'zh', 'fr').  The original .so used the
+# integers 0 (EN) and 1 (ZH); setLanguage() still accepts those for
+# backward compatibility and maps them onto codes via _INT_LANG_MAP.
+_current_language = 'en'
+
+# Back-compat mapping for the legacy integer language ids.
+_INT_LANG_MAP = {0: 'en', 1: 'zh'}
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +106,8 @@ class StringEN:
     }
 
     title = {
+        'language': 'Language',
+        'plugins': 'Plugins',
         'main_page': 'Main Page',
         'auto_copy': 'Auto Copy',
         'about': 'About',
@@ -370,42 +389,155 @@ class DrawParZH:
 
 
 # ===================================================================
-# Internal lookup tables (module-level singletons)
+# Language registry — loaded from data/lang/*.json at import time
 # ===================================================================
-# The original .so uses __get_str_impl which iterates over all dicts
-# in StringEN/StringZH searching for a matching key. Our get_str does
-# the same: flat key lookup across all 6 dict categories.
+# UI strings live in data/lang/<code>.json.  Each file has the shape:
+#     {"_name": "English", "_font": "mononoki",
+#      "title": {...}, "button": {...}, ..., "system": {}}
+# The hardcoded StringEN / StringZH classes remain as a built-in fallback
+# for when the JSON files are missing, or when a key is absent from the
+# active language file.
+#
+# Category iteration is generalised: every top-level entry whose key does
+# NOT start with '_' and whose value is a dict is treated as a string
+# category.  New categories (e.g. 'system') therefore resolve with no code
+# change and without a fixed category-name list.
 
-_DICT_NAMES = ('title', 'button', 'toastmsg', 'tipsmsg', 'procbarmsg', 'itemmsg')
+_MISSING = object()
 
 
-def _get_str_class():
-    """Return the active string class based on current language."""
-    if _current_language == 0:
-        return StringEN
-    return StringZH
+def _find_lang_dir():
+    """Locate the data/lang directory relative to the application root.
+
+    Mirrors how other data/ and res/ assets are located (see images.py,
+    scroller.py): try this file's location first, then the working
+    directory, then the on-device install path, then sys.path entries.
+    ``src/lib/resources.py`` sits two levels below the repo root, while on
+    the device ``lib/resources.py`` sits one level below the app root.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, '..', '..', 'data', 'lang'),  # repo: src/lib -> data/lang
+        os.path.join(here, '..', 'data', 'lang'),         # device: lib -> data/lang
+        os.path.join(os.getcwd(), 'data', 'lang'),
+        '/mnt/sdcard/root2/root/home/pi/ipk_app_main/data/lang',
+    ]
+    for p in sys.path:
+        candidates.append(os.path.join(p, 'data', 'lang'))
+        candidates.append(os.path.join(p, '..', 'data', 'lang'))
+    for c in candidates:
+        norm = os.path.normpath(c)
+        if os.path.isdir(norm):
+            return norm
+    return None
+
+
+def _load_languages():
+    """Load every data/lang/*.json into a registry keyed by filename stem."""
+    registry = {}
+    lang_dir = _find_lang_dir()
+    if not lang_dir:
+        return registry
+    try:
+        names = sorted(os.listdir(lang_dir))
+    except OSError:
+        return registry
+    for fn in names:
+        if not fn.endswith('.json'):
+            continue
+        code = fn[:-len('.json')]
+        path = os.path.join(lang_dir, fn)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            registry[code] = data
+    return registry
+
+
+def _class_categories(cls):
+    """Collect the string-category dicts declared on a String* class."""
+    cats = {}
+    for name in vars(cls):
+        if name.startswith('_'):
+            continue
+        val = getattr(cls, name)
+        if isinstance(val, dict):
+            cats[name] = val
+    return cats
+
+
+# In-memory registry: code -> parsed JSON dict (categories + _name/_font).
+_LANG_REGISTRY = _load_languages()
+
+# Built-in fallbacks from the hardcoded classes.
+_EN_BUILTIN = _class_categories(StringEN)
+_ZH_BUILTIN = _class_categories(StringZH)
+
+
+def _categories_of(data):
+    """Return {name: dict} categories from a lang dict, skipping _meta keys."""
+    return {k: v for k, v in data.items()
+            if not k.startswith('_') and isinstance(v, dict)}
+
+
+def _active_categories():
+    """Category maps for the active language (file first, then built-in)."""
+    entry = _LANG_REGISTRY.get(_current_language)
+    if entry is not None:
+        return _categories_of(entry)
+    if _current_language == 'zh':
+        return _ZH_BUILTIN
+    return _EN_BUILTIN
+
+
+def _lookup(key, categories):
+    """First match for *key* across the given category dicts, or _MISSING."""
+    for d in categories.values():
+        if key in d:
+            return d[key]
+    return _MISSING
 
 
 def _get_drawpar_class():
     """Return the active DrawPar class based on current language."""
-    if _current_language == 0:
-        return DrawParEN
-    return DrawParZH
+    if _current_language == 'zh':
+        return DrawParZH
+    return DrawParEN
 
 
-def _lookup_single_key(key, str_cls=None):
-    """Look up a single string key across all dict categories.
+def _active_font():
+    """Font name for the active language (default mononoki)."""
+    entry = _LANG_REGISTRY.get(_current_language)
+    if entry is not None and entry.get('_font'):
+        return entry['_font']
+    if _current_language == 'zh':
+        return _FONT_ZH
+    return _FONT_EN
 
-    The original resources.so __get_str_impl.inner_str_get_fn does exactly this:
-    iterates title, button, toastmsg, tipsmsg, procbarmsg, itemmsg and returns
-    the first match. If no match, returns the key itself unchanged.
+
+def _resolve_key(key):
+    """Resolve a single key against the active language, falling back to EN.
+
+    Order: active language categories -> loaded en.json -> built-in StringEN.
+    Only when English has no value either is the raw key returned.
     """
-    if str_cls is None:
-        str_cls = _get_str_class()
-    for attr_name in _DICT_NAMES:
-        d = getattr(str_cls, attr_name, {})
-        if key in d:
-            return d[key]
+    val = _lookup(key, _active_categories())
+    if val is not _MISSING:
+        return val
+
+    en_entry = _LANG_REGISTRY.get('en')
+    if en_entry is not None:
+        val = _lookup(key, _categories_of(en_entry))
+        if val is not _MISSING:
+            return val
+
+    val = _lookup(key, _EN_BUILTIN)
+    if val is not _MISSING:
+        return val
+
     return key
 
 
@@ -427,30 +559,68 @@ def get_str(keys):
         get_str('main_page')      -> 'Main Page'
         get_str(['read_tag', 'write_tag'])  -> ('Read Tag', 'Write Tag')
         get_str('nonexistent')    -> 'nonexistent'
+
+    Resolution walks the active language's categories first and falls back
+    to English for any key the active language does not define, so a partial
+    translation never leaks a raw key that English can resolve.
     """
-    str_cls = _get_str_class()
-
     if isinstance(keys, (list, tuple)):
-        result = []
-        for k in keys:
-            result.append(_lookup_single_key(k, str_cls))
-        return tuple(result)
+        return tuple(_resolve_key(k) for k in keys)
 
-    return _lookup_single_key(keys, str_cls)
+    return _resolve_key(keys)
+
+
+# Reverse index: English display string -> resource key. Built once from the
+# English pack; reset by force_check_str_res() when language files reload.
+_EN_REVERSE = None
+
+
+def _english_reverse_index():
+    """Map each English display string to a resource key (built lazily)."""
+    global _EN_REVERSE
+    if _EN_REVERSE is None:
+        idx = {}
+        sources = []
+        en_entry = _LANG_REGISTRY.get('en')
+        if en_entry is not None:
+            sources.append(_categories_of(en_entry))
+        sources.append(_EN_BUILTIN)
+        for cats in sources:
+            for d in cats.values():
+                for k, v in d.items():
+                    if isinstance(v, str) and v not in idx:
+                        idx[v] = k
+        _EN_REVERSE = idx
+    return _EN_REVERSE
+
+
+def tr(text):
+    """Translate an English display string into the active language.
+
+    Unlike get_str (which looks up by resource *key*), tr looks up by the
+    English *value*.  Use it for call sites that hold hard-coded English
+    labels rather than keys — e.g. the main-menu items.  English is a no-op,
+    and unknown text (plugin names, dynamic data) passes through unchanged.
+    """
+    if not isinstance(text, str) or _current_language == 'en':
+        return text
+    key = _english_reverse_index().get(text)
+    if key is None:
+        return text
+    return _resolve_key(key)
 
 
 def get_font(size=13, *args):
     """Return font specification string for given size.
 
-    Returns locale-dependent font:
+    Returns the active language's font (its ``_font`` from data/lang, or the
+    built-in default 'mononoki'):
       EN: 'mononoki {size}'
       ZH: '文泉驿等宽正黑 {size}'
 
     The original .so returns a Pango/tkinter font spec string.
     """
-    if _current_language == 0:
-        return '%s %d' % (_FONT_EN, size)
-    return '%s %d' % (_FONT_ZH, size)
+    return '%s %d' % (_active_font(), size)
 
 
 def get_bold_font(size=13, *args):
@@ -550,10 +720,14 @@ def get_fws(key=None):
 def force_check_str_res():
     """Force reload/recheck string resources.
 
-    In the original .so, this re-reads string data from disk or
-    recalculates internal caches. For our pure-Python module with
-    static class attributes, this is a no-op.
+    In the original .so, this re-reads string data from disk or recalculates
+    internal caches.  Here it re-scans data/lang/*.json and rebuilds the
+    in-memory registry, so newly added or edited language files are picked up
+    without reimporting the module.
     """
+    global _LANG_REGISTRY, _EN_REVERSE
+    _LANG_REGISTRY = _load_languages()
+    _EN_REVERSE = None
     return None
 
 
@@ -571,18 +745,45 @@ def is_keys_same(keys):
 
 
 def getLanguage():
-    """Get current language setting.
+    """Get the active language code.
 
-    Returns: 0 for EN, 1 for ZH.
+    Returns: the active language code string (e.g. 'en', 'zh', 'fr').
     """
     return _current_language
 
 
 def setLanguage(lang):
-    """Set current language.
+    """Set the active language.
 
     Args:
-        lang: 0 for EN, 1 for ZH.
+        lang: a language-code string (e.g. 'en', 'zh', 'fr'), matching the
+            stem of a file in data/lang/.  For backward compatibility the
+            legacy integers are also accepted: 0 -> 'en', 1 -> 'zh'.
     """
     global _current_language
+    if isinstance(lang, bool):
+        # bool is a subclass of int — normalise before the int mapping.
+        lang = int(lang)
+    if isinstance(lang, int):
+        lang = _INT_LANG_MAP.get(lang, 'en')
     _current_language = lang
+
+
+def list_languages():
+    """List the languages discovered in data/lang/*.json.
+
+    Returns a list of dicts, one per loaded language file, each with:
+        'code' — the language code (JSON filename stem)
+        'name' — the language's ``_name`` (falls back to the code)
+        'font' — the language's ``_font`` (falls back to 'mononoki')
+    Sorted by code for stable ordering.
+    """
+    result = []
+    for code in sorted(_LANG_REGISTRY):
+        entry = _LANG_REGISTRY[code]
+        result.append({
+            'code': code,
+            'name': entry.get('_name', code),
+            'font': entry.get('_font', _FONT_EN),
+        })
+    return result

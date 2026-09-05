@@ -116,6 +116,15 @@ except ImportError:
     pm3_compat = None
 
 # ---------------------------------------------------------------------------
+# PM3/system status-phrase localization — translates recognized user-facing
+# phrases into the active UI language (strict no-op on English).
+# ---------------------------------------------------------------------------
+try:
+    import pm3_localize
+except ImportError:
+    pm3_localize = None
+
+# ---------------------------------------------------------------------------
 # Constants — from binary analysis + executor_strings.txt
 # ---------------------------------------------------------------------------
 # executor_ghidra_raw.txt: 0x22B8 = 8888
@@ -362,6 +371,14 @@ def _send_and_cache(cmd, timeout=5888):
     if pm3_compat is not None and result:
         try:
             result = pm3_compat.translate_response(result, translated_cmd)
+        except Exception:
+            pass
+
+    # Localize recognized user-facing status phrases for the active language.
+    # Strict no-op on English; never touches hex dumps or structured output.
+    if pm3_localize is not None and result:
+        try:
+            result = pm3_localize.localize(result)
         except Exception:
             pass
 

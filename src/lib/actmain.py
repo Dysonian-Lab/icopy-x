@@ -148,6 +148,9 @@ class MainActivity(BaseActivity):
     def __init__(self, bundle=None):
         super().__init__(bundle)
         self.lv_main_page = None
+        # Language the cached menu labels were built for; used by onResume to
+        # re-localise the root menu when the language changed while away.
+        self._labels_lang = None
         self._menu_items = list(self.MENU_ITEMS)
 
         # --- Plugin integration ---
@@ -188,8 +191,9 @@ class MainActivity(BaseActivity):
             self.lv_main_page = ListView(
                 canvas, xy=xy, text_size=text_size, item_height=LIST_ITEM_H,
             )
-            labels = [item[0] for item in self._menu_items]
+            labels = [resources.tr(item[0]) for item in self._menu_items]
             self.lv_main_page.setItems(labels)
+            self._labels_lang = resources.getLanguage()
             icons = [item[1] for item in self._menu_items]
             self.lv_main_page.setIcons(icons)
             self.lv_main_page.setOnPageChangeCall(self._onPageChange)
@@ -200,10 +204,24 @@ class MainActivity(BaseActivity):
         self._updateTitle()
 
     def onResume(self):
-        """Refresh battery, restore list display and title."""
+        """Refresh battery, restore list display and title.
+
+        The main menu is the root activity: it is only ever resumed, never
+        recreated. Its item labels are built once in onCreate and cached in
+        the ListView, so a language change made elsewhere (Settings > Language)
+        would leave them stale. Re-localise them here when the active language
+        differs from the one they were built for, preserving the highlight.
+        """
         super().onResume()
-        if self.lv_main_page is not None and not self.lv_main_page.isShowing():
-            self.lv_main_page.show()
+        if self.lv_main_page is not None:
+            if resources.getLanguage() != self._labels_lang:
+                selected = self.lv_main_page.selection()
+                labels = [resources.tr(item[0]) for item in self._menu_items]
+                self.lv_main_page.setItems(labels)
+                self.lv_main_page.setSelection(selected)
+                self._labels_lang = resources.getLanguage()
+            if not self.lv_main_page.isShowing():
+                self.lv_main_page.show()
         self._updateTitle()
 
     def onKeyEvent(self, key):

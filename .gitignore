@@ -45,3 +45,10 @@ memory-bank/
 # Extracted IPK / local build output (not project files)
 ipk_extract/
 build/docker_fw_out/
+# Debug logs
+icopy_debug.log
+
+# Claude Code: ignore local/personal settings, but TRACK shared .claude/ tooling
+# (workflows, agents, commands) so the team's multi-agent methodology is versioned.
+.claude/settings.local.json
+.claude/*.local.json

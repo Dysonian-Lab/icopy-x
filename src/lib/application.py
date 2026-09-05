@@ -132,6 +132,17 @@ def startApp():
     import actstack
     actstack.init(root)
 
+    # ── 2a. Apply saved UI language ────────────────────────────────
+    # Read the persisted language and set it on resources BEFORE any
+    # screen (or the plugin menu) builds, so every label renders in the
+    # chosen language from the very first frame.
+    try:
+        import config
+        from lib import resources
+        resources.setLanguage(config.getValue('language', 'en'))
+    except Exception:
+        pass
+
     # ── 2b. Discover plugins ──────────────────────────────────────
     # Must run before MainActivity is created so that the main menu
     # includes promoted plugin entries and the "Plugins" submenu.

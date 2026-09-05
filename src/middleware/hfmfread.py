@@ -196,6 +196,61 @@ def fillKeys2DataMap():
     if hfmfkeys:
         DATA_MAP.update(hfmfkeys.KEYS_MAP)
 
+# ---------------------------------------------------------------------------
+# Access-condition decoding — ported verbatim from iceman firmware mifare4.c
+# (MFAccessConditions / MFAccessConditionsTrailer + mfGetAccessConditionsDesc)
+# so save_json's AccessConditionsText matches `hf mf` / iceman JSON output
+# instead of being hardcoded to the transport-config defaults.  Indexed by the
+# 3-bit C1C2C3 access value (0-7).
+# ---------------------------------------------------------------------------
+_ACL_DATA = (
+    'read AB; write AB; increment AB; decrement transfer restore AB',
+    'read AB; decrement transfer restore AB',
+    'read AB',
+    'read B; write B',
+    'read AB; write B',
+    'read B',
+    'read AB; write B; increment B; decrement transfer restore AB',
+    'none',
+)
+_ACL_TRAILER = (
+    'read A by A; read ACCESS by A; read/write B by A',
+    'write A by A; read/write ACCESS by A; read/write B by A',
+    'read ACCESS by A; read B by A',
+    'write A by B; read ACCESS by AB; write ACCESS by B; write B by B',
+    'write A by B; read ACCESS by AB; write B by B',
+    'read ACCESS by AB; write ACCESS by B',
+    'read ACCESS by AB',
+    'read ACCESS by AB',
+)
+
+def _acl_cond(access_hex, group):
+    """3-bit C1C2C3 access condition for a block group (0-3).
+
+    Ports mfGetAccessConditionsDesc bit extraction (mifare4.c):
+        d1 = HIGH(byte7) >> group
+        d2 = LOW(byte8)  >> group
+        d3 = HIGH(byte8) >> group
+        cond = (d1&1)<<2 | (d2&1)<<1 | (d3&1)
+    `access_hex` is the access field hex (bytes 6,7,8 = chars 0:6).  Falls
+    back to all-zero bytes on malformed input, which decodes to the default
+    condition rather than raising.
+    """
+    try:
+        b7 = int(access_hex[2:4], 16)
+        b8 = int(access_hex[4:6], 16)
+    except (ValueError, IndexError):
+        b7 = b8 = 0
+    d1 = ((b7 >> 4) & 0x0F) >> group
+    d2 = (b8 & 0x0F) >> group
+    d3 = ((b8 >> 4) & 0x0F) >> group
+    return ((d1 & 1) << 2) | ((d2 & 1) << 1) | (d3 & 1)
+
+def _acl_text(access_hex, group, is_trailer):
+    """Human-readable access-condition string for a block group (iceman text)."""
+    table = _ACL_TRAILER if is_trailer else _ACL_DATA
+    return table[_acl_cond(access_hex, group)]
+
 def save_bin(infos, data_list):
     """Save block data as binary .bin file."""
     name = create_name_by_type(infos)
@@ -296,12 +351,17 @@ def save_json(infos, data_list):
         access_cond = trailer_hex[12:20].upper()  # 4 bytes = 8 hex chars
         user_data = trailer_hex[18:20].upper()     # byte 9 = UserData
 
-        # AccessConditionsText: label each data block and the trailer
+        # AccessConditionsText: decode each block group from the real access
+        # bytes (access_cond bytes 6-8) instead of assuming transport-config
+        # defaults.  A 4-block sector maps one block per group (0,1,2 + trailer
+        # group 3); a 16-block 4K sector maps 5 data blocks per group.
         act = {}
+        blocks_per_group = 5 if bc > 4 else 1
         for offset in range(bc - 1):
             blk = fb + offset
-            act['block{}'.format(blk)] = 'read AB; write AB; increment AB; decrement transfer restore AB'
-        act['block{}'.format(trailer_idx)] = 'write A by A; read/write ACCESS by A; read/write B by A'
+            group = offset // blocks_per_group
+            act['block{}'.format(blk)] = _acl_text(access_cond, group, False)
+        act['block{}'.format(trailer_idx)] = _acl_text(access_cond, 3, True)
         act['UserData'] = user_data
 
         sector_keys[str(sector)] = {
@@ -518,6 +578,27 @@ def readAllSector(size, infos, listener):
         bc = mifare.getBlockCountInSector(sector) if mifare else 4
         blocks = readBlocks(sector, keyA, keyB, infos)
         if blocks and isinstance(blocks, list):
+            # Restore recovered keys into the sector trailer.  `hf mf rdsc`
+            # only writes back the key it authenticated with (cmdhfmf.c
+            # CmdHF14AMfRdSc), so the *other* key reads back as zeros whenever
+            # the access conditions block its read-back — e.g. Key B under a
+            # write-B ACL.  readBlocks() authenticates Key A first, so those
+            # sectors land here with Key B = 000000000000 in the trailer even
+            # though it was recovered.  Patch both keys back from KEYS_MAP (the
+            # same store SectorKeys uses) so the trailer block data matches
+            # SectorKeys and survives write / eload+sim round-trips.  Trailer
+            # layout is KeyA(0:12) · AccessBits+GPB(12:20) · KeyB(20:32); the
+            # access bytes are read correctly over the air and are left as-is.
+            # Only overwrite a key position when a real key was recovered —
+            # otherwise the read-back bytes are preserved unchanged.
+            if len(blocks) == bc:
+                trailer = blocks[-1]
+                if isinstance(trailer, str) and len(trailer) == 32:
+                    ka = keyA.upper() if (keyA and len(keyA) == 12) else None
+                    kb = keyB.upper() if (keyB and len(keyB) == 12) else None
+                    blocks[-1] = ((ka or trailer[0:12])
+                                  + trailer[12:20]
+                                  + (kb or trailer[20:32]))
             data_list.extend(blocks)
             real_read_count += len(blocks)
         else:
