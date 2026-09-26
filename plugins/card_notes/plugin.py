@@ -20,8 +20,9 @@ Dump Files browser can only show that number, so a wallet with many cards
 is hard to read.  This plugin browses ``/mnt/upan/dump/`` and lets you
 attach a note per card.  The notes live in a sidecar store shared with
 other plugins (see :mod:`lib.card_notes`), so the Ultra/Tiny writers can
-show the note next to the matching dump; the dump files themselves are
-never renamed, so the built-in write/simulate flows keep working.
+show the note next to the matching dump.  A card is identified by its UID,
+read from the filename or, for a renamed dump, from the dump files
+themselves, so renaming a dump does not lose its note.
 
 Notes are written either on the device -- the edit screen is a normal
 ``ui.json`` ``input_text`` field (UP/DOWN change the character under the
@@ -60,7 +61,7 @@ def _scan_dumps(root):
             path = os.path.join(directory, name)
             if not os.path.isfile(path):
                 continue
-            uid = store.name_uid(name)
+            uid = store.uid_from_dump(path, family)
             if not uid:
                 continue
             key = store.key(family, uid)

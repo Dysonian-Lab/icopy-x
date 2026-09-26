@@ -92,6 +92,70 @@ def test_store_name_uid():
     assert store.name_uid('random') == ''
 
 
+def _mf1_bin(uid_hex, blocks=64, seven=False):
+    data = bytearray(blocks * 16)
+    uid = bytes.fromhex(uid_hex)
+    data[0:len(uid)] = uid
+    if seven:
+        data[len(uid)] = 0x08
+        data[len(uid) + 1:len(uid) + 3] = bytes.fromhex('4400')
+    else:
+        data[4] = data[0] ^ data[1] ^ data[2] ^ data[3]
+        data[5] = 0x08
+        data[6:8] = bytes.fromhex('0400')
+    return bytes(data)
+
+
+# uid_from_dump: filename first, then the dump contents (renamed dumps)
+
+def test_uid_from_dump_uses_filename(tmp_path):
+    p = tmp_path / 'M1-1K-4B_DAEFB416_1.bin'
+    p.write_bytes(_mf1_bin('DAEFB416'))
+    assert store.uid_from_dump(str(p), 'mf1') == 'DAEFB416'
+
+
+def test_uid_from_dump_renamed_mf1_block0(tmp_path):
+    p = tmp_path / 'FRONT-DOOR.bin'
+    p.write_bytes(_mf1_bin('DEADBEEF'))
+    assert store.uid_from_dump(str(p), 'mf1') == 'DEADBEEF'
+
+
+def test_uid_from_dump_renamed_mf1_seven_byte(tmp_path):
+    p = tmp_path / 'GATE-2.bin'
+    p.write_bytes(_mf1_bin('AABBCCDDEEFF00', seven=True))
+    assert store.uid_from_dump(str(p), 'mf1') == 'AABBCCDDEEFF00'
+
+
+def test_uid_from_dump_renamed_mfu_from_bin(tmp_path):
+    pages = bytearray(45 * 4)
+    pages[0:3] = bytes.fromhex('1D3232')
+    pages[4:8] = bytes.fromhex('0E950000')
+    p = tmp_path / 'tag.bin'
+    p.write_bytes(b'\x00' * 56 + bytes(pages))
+    assert store.uid_from_dump(str(p), 'mfu') == '1D32320E950000'
+
+
+def test_uid_from_dump_renamed_mfu_from_json(tmp_path):
+    p = tmp_path / 'tag.bin'
+    p.write_bytes(b'\x00' * 236)
+    (tmp_path / 'tag.json').write_text(
+        json.dumps({'Card': {'UID': '1D32320E950000'}, 'blocks': {}}),
+        encoding='utf-8')
+    assert store.uid_from_dump(str(p), 'mfu') == '1D32320E950000'
+
+
+def test_uid_from_dump_renamed_em410x(tmp_path):
+    p = tmp_path / 'KEYFOB.txt'
+    p.write_text('0000BC614E\n0000BC614E\n', encoding='utf-8')
+    assert store.uid_from_dump(str(p), 'em410x') == '0000BC614E'
+
+
+def test_uid_from_dump_unknown_is_empty(tmp_path):
+    p = tmp_path / 'mystery.bin'
+    p.write_bytes(b'\x01\x02\x03')
+    assert store.uid_from_dump(str(p), 'mf1') == ''
+
+
 def test_store_roundtrip(tmp_path):
     path = str(tmp_path / 'n.json')
     notes = store.load(path)
@@ -121,6 +185,14 @@ def test_load_lists_cards_deduped_by_uid(env):
     plugin.load()
     assert plugin._keys == ['mfu:1D32320E950000', 'mf1:DAEFB416']
     assert all('(no note)' in x for x in _items(host))
+
+
+def test_load_includes_renamed_dump(env):
+    (env['root'] / 'mf1' / 'FRONT-DOOR.bin').write_bytes(_mf1_bin('DEADBEEF'))
+    plugin, host = _plugin()
+    plugin.load()
+    assert 'mf1:DEADBEEF' in plugin._keys
+    assert any('DEADBEEF' in x for x in _items(host))
 
 
 def test_edit_save_keys_by_uid_and_reflects_in_list(env):
