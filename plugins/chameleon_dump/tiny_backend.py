@@ -9,7 +9,8 @@ uses the ChameleonMini text command set (VERSION?, SETTING=, CONFIG=,
 UIDMODE=, SAKMODE=, ...) plus XModem for UPLOAD/DOWNLOAD, so a Chameleon
 Mini should work too -- untested (no hardware to verify).
 
-Supported dump families (recognized by the iCopy-X filename convention):
+Supported dump families (iCopy-X filename convention, or read from the
+dump contents when the file has been renamed on the device):
     mf1     M1-<1K|4K|Mini>-<4B|7B>_<uid>_<n>.bin   -> MF_CLASSIC_1K[_7B] / 4K[_7B] / MINI_4B
     mfu     NTAG213|NTAG215|NTAG216_<uid>_<n>.json  -> NTAG213 / NTAG215 / NTAG216
 
@@ -58,6 +59,13 @@ NTAG_CFG = {
 }
 MFU_NAME_RE = re.compile(
     r"^(NTAG213|NTAG215|NTAG216)_[0-9A-Fa-f]+_\d+$", re.IGNORECASE)
+
+# Content fallbacks for dumps renamed on the device (see ultra_backend):
+# family from the dump sub-directory, size from the .bin length, UID from
+# block 0 (MIFARE Classic) or the page image (NTAG).
+_MF1_SIZE_BY_BYTES = {320: "mini", 1024: "1k", 2048: "plus-2k", 4096: "4k"}
+_MFU_PAGES_BY_TYPE = {45: "NTAG213", 135: "NTAG215", 231: "NTAG216"}
+_FAMILY_DIRS = ("mf1", "mfu")
 
 # SAKMODE is only accepted by the firmware for the 4-byte 1K/4K configs;
 # the _7B variants reply 201:INVALID COMMAND USAGE.
@@ -108,7 +116,91 @@ class TinyCommandError(TinyError):
 # Dump detection / parsing
 # ---------------------------------------------------------------------------
 
-def _detect_dump(path):
+def _family_of(path):
+    """Dump family from the folder name (``mf1``/``mfu``) or ''."""
+    family = os.path.basename(os.path.dirname(path)).lower()
+    return family if family in _FAMILY_DIRS else ""
+
+
+def _read_bin(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def _json_card(path):
+    json_path = os.path.splitext(path)[0] + ".json"
+    if not os.path.isfile(json_path):
+        return {}
+    try:
+        with open(json_path, "r", errors="ignore") as fh:
+            card = json.load(fh).get("Card", {})
+    except (ValueError, OSError):
+        return {}
+    return card if isinstance(card, dict) else {}
+
+
+def _is_hex(value, length=None):
+    if not value or (length is not None and len(value) != length):
+        return False
+    return all(c in "0123456789ABCDEFabcdef" for c in value)
+
+
+def _mf1_uid_from_block0(data):
+    """``(uid, uid_len)`` from MIFARE Classic block 0, or None."""
+    if not data or len(data) < 10:
+        return None
+    d = bytearray(data[:16])
+    if len(d) >= 8 and (d[0] ^ d[1] ^ d[2] ^ d[3]) == d[4] and (d[6] & 0xC0) == 0:
+        return bytes(d[0:4]).hex().upper(), 4
+    if len(d) >= 9 and (d[8] & 0xC0) == 0x40:
+        return bytes(d[0:7]).hex().upper(), 7
+    return None
+
+
+def _uidlen_from(path):
+    uid_hex = (_json_card(path).get("UID") or "").strip()
+    if _is_hex(uid_hex) and len(uid_hex) == 14:
+        return 7
+    if _is_hex(uid_hex) and len(uid_hex) == 8:
+        return 4
+    found = _mf1_uid_from_block0(_read_bin(path))
+    return found[1] if found is not None else 4
+
+
+def _detect_mf1_content(path):
+    if os.path.splitext(path)[1].lower() != ".bin":
+        return None
+    variant = _MF1_SIZE_BY_BYTES.get(len(_read_bin(path) or b""))
+    cap = MFC_CAP.get(variant) if variant else None
+    if cap is None:
+        return None
+    blocks, cfgs = cap
+    uidlen = _uidlen_from(path)
+    config = cfgs.get(uidlen)
+    if config is None:
+        return None
+    return {"kind": "mf1", "config": config, "type_name": config,
+            "blocks": blocks, "memsize": blocks * BLOCK_SIZE, "uidlen": uidlen}
+
+
+def _detect_mfu_content(path):
+    try:
+        pages = _parse_mfu_pages(path)
+    except (OSError, TinyError, ValueError):
+        return None
+    tag = _MFU_PAGES_BY_TYPE.get(len(pages) // 4)
+    cap = NTAG_CFG.get(tag) if tag else None
+    if cap is None:
+        return None
+    page_count, memsize = cap
+    return {"kind": "mfu", "config": tag, "type_name": tag,
+            "pages": page_count, "memsize": memsize, "uidlen": 7}
+
+
+def _detect_dump(path, family=None):
     name = os.path.splitext(os.path.basename(path))[0]
 
     match = MFC_NAME_RE.match(name)
@@ -131,7 +223,15 @@ def _detect_dump(path):
         return {"kind": "mfu", "config": tag, "type_name": tag,
                 "pages": pages, "memsize": memsize, "uidlen": 7}
 
-    return None
+    # Renamed dump: the filename no longer identifies it, so use the family
+    # folder and the file contents (mirrors the device's own Tag Info).
+    family = (family or "").lower() or _family_of(path)
+    if family == "mf1":
+        return _detect_mf1_content(path)
+    if family == "mfu":
+        return _detect_mfu_content(path)
+    # No family hint (custom dump dir): sniff by length / page count.
+    return _detect_mf1_content(path) or _detect_mfu_content(path)
 
 
 def _parse_mfu_pages(path):
@@ -422,11 +522,9 @@ def _load_store():
     return store
 
 
-def _note_for(store, family, name):
-    if store is None:
-        return ""
-    uid = store.name_uid(name)
-    if not uid:
+def _note_for(store, family, uid):
+    """Note for a dump, keyed by its (content-derived) UID."""
+    if store is None or not uid:
         return ""
     return store.lookup(family, uid)
 
@@ -480,6 +578,7 @@ def _scan_dumps():
             names = sorted(os.listdir(directory))
         except OSError:
             continue
+        family = os.path.basename(os.path.normpath(directory)).lower()
         # A dump may have both .bin and .json siblings; keep one (prefer .bin,
         # whose .json is read as a side file by _parse_mfu_pages).
         by_base = {}
@@ -495,7 +594,7 @@ def _scan_dumps():
                 by_base[base] = name
         for base in order:
             path = os.path.join(directory, by_base[base])
-            meta = _detect_dump(path)
+            meta = _detect_dump(path, family)
             if meta is None:
                 continue
             try:
@@ -605,7 +704,7 @@ class TinyBackend(object):
         for entry in dumps:
             name = entry["name"]
             short = name if len(name) <= 28 else name[:27] + "~"
-            note = _note_for(store, entry["meta"]["kind"], name)
+            note = _note_for(store, entry["meta"]["kind"], entry["uid"])
             if note:
                 short = "%s  %s" % (note, short)
                 if len(short) > 34:

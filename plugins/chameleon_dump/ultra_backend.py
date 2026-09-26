@@ -23,7 +23,8 @@ The Chameleon Ultra is expected on the iCopy-X USB host port (appears as
 ``GET_APP_VERSION`` (1000) handshake, writes the dump, enables the slot and
 reads it back for verification.
 
-Supported dump families (recognized by the iCopy-X filename convention):
+Supported dump families (iCopy-X filename convention, or read from the
+dump contents when the file has been renamed on the device):
     mf1     M1-<1K|4K|Plus-2K|Mini>-<4B|7B>_<uid>_<n>.bin  -> MIFARE Classic
     mfu     NTAG213|NTAG215|NTAG216_<uid>_<n>.bin          -> NTAG / MF0
     em410x  EM410x-ID_<id>_<n>.txt                         -> EM410x (LF)
@@ -153,6 +154,14 @@ MFU_NAME_RE = re.compile(
 
 EM410X_NAME_RE = re.compile(
     r"^EM410x-ID_([0-9A-Fa-f]+)_\d+$", re.IGNORECASE)
+
+# Content fallbacks for dumps renamed on the device.  The family comes from
+# the dump sub-directory, the rest from the files themselves: MIFARE Classic
+# size from the .bin length + UID from block 0, NTAG from the page count,
+# EM410x from the saved .txt.
+_MF1_SIZE_BY_BYTES = {320: "mini", 1024: "1k", 2048: "plus-2k", 4096: "4k"}
+_MFU_PAGES_BY_TYPE = {45: "NTAG213", 135: "NTAG215", 231: "NTAG216"}
+_FAMILY_DIRS = ("mf1", "mfu", "em410x")
 
 # Read-side maps: tag_specific_type_t (1019 GET_SLOT_INFO) -> capability.
 # Only the families the built-in dump/write path understands are listed;
@@ -374,11 +383,9 @@ def _load_store():
     return store
 
 
-def _note_for(store, family, name):
-    if store is None:
-        return ""
-    uid = store.name_uid(name)
-    if not uid:
+def _note_for(store, family, uid):
+    """Note for a dump, keyed by its (content-derived) UID."""
+    if store is None or not uid:
         return ""
     return store.lookup(family, uid)
 
@@ -410,10 +417,98 @@ def _load_card_dump():
 
 
 # ---------------------------------------------------------------------------
-# Dump detection / parsing (by iCopy-X filename convention)
+# Dump detection / parsing (iCopy-X filename convention, with a content
+# fallback for dumps renamed on the device)
 # ---------------------------------------------------------------------------
 
-def _detect_dump(path):
+def _family_of(path):
+    """Dump family from the folder name (``mf1``/``mfu``/``em410x``) or ''."""
+    family = os.path.basename(os.path.dirname(path)).lower()
+    return family if family in _FAMILY_DIRS else ""
+
+
+def _read_bin(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def _json_card(path):
+    json_path = os.path.splitext(path)[0] + ".json"
+    if not os.path.isfile(json_path):
+        return {}
+    try:
+        with open(json_path, "r", errors="ignore") as fh:
+            card = json.load(fh).get("Card", {})
+    except (ValueError, OSError):
+        return {}
+    return card if isinstance(card, dict) else {}
+
+
+def _is_hex(value, length=None):
+    if not value or (length is not None and len(value) != length):
+        return False
+    return all(c in "0123456789ABCDEFabcdef" for c in value)
+
+
+def _mf1_uid_from_block0(data):
+    """``(uid, uid_len)`` from MIFARE Classic block 0, or None."""
+    if not data or len(data) < 10:
+        return None
+    d = bytearray(data[:16])
+    if len(d) >= 8 and (d[0] ^ d[1] ^ d[2] ^ d[3]) == d[4] and (d[6] & 0xC0) == 0:
+        return bytes(d[0:4]).hex().upper(), 4
+    if len(d) >= 9 and (d[8] & 0xC0) == 0x40:
+        return bytes(d[0:7]).hex().upper(), 7
+    return None
+
+
+def _detect_mf1_content(path):
+    if os.path.splitext(path)[1].lower() != ".bin":
+        return None
+    variant = _MF1_SIZE_BY_BYTES.get(len(_read_bin(path) or b""))
+    entry = MFC_CAP.get(variant) if variant else None
+    if entry is None:
+        return None
+    tag_type, type_name, blocks = entry
+    uidlen = 4
+    uid_hex = (_json_card(path).get("UID") or "").strip()
+    if _is_hex(uid_hex) and len(uid_hex) == 14:
+        uidlen = 7
+    elif _is_hex(uid_hex) and len(uid_hex) == 8:
+        uidlen = 4
+    else:
+        found = _mf1_uid_from_block0(_read_bin(path))
+        if found is not None:
+            uidlen = found[1]
+    return {"kind": "mf1", "tag_type": tag_type, "type_name": type_name,
+            "blocks": blocks, "uidlen": uidlen}
+
+
+def _detect_mfu_content(path):
+    try:
+        pages, _version, _signature = _parse_mfu(path)
+    except (OSError, UltraError, ValueError):
+        return None
+    tag = _MFU_PAGES_BY_TYPE.get(len(pages) // 4)
+    entry = NTAG_TYPES.get(tag) if tag else None
+    if entry is None:
+        return None
+    tag_type, type_name, _pages = entry
+    return {"kind": "mfu", "tag_type": tag_type, "type_name": type_name}
+
+
+def _detect_em410x_content(path):
+    id_bytes = _parse_em410x_id(path)
+    if id_bytes is None:
+        return None
+    return {"kind": "em410x", "tag_type": TAG_TYPE_EM410X,
+            "type_name": "EM410x", "id": id_bytes}
+
+
+def _detect_dump(path, family=None):
     name = os.path.splitext(os.path.basename(path))[0]
 
     match = MFC_NAME_RE.match(name)
@@ -437,7 +532,19 @@ def _detect_dump(path):
         return {"kind": "em410x", "tag_type": TAG_TYPE_EM410X,
                 "type_name": "EM410x", "id": bytes.fromhex(match.group(1).upper())}
 
-    return None
+    # Renamed dump: the filename no longer identifies it, so use the family
+    # folder and the file contents (mirrors the device's own Tag Info).
+    family = (family or "").lower() or _family_of(path)
+    if family == "mf1":
+        return _detect_mf1_content(path)
+    if family == "mfu":
+        return _detect_mfu_content(path)
+    if family == "em410x":
+        return _detect_em410x_content(path)
+    # No family hint (custom dump dir): sniff by extension / length.
+    if os.path.splitext(path)[1].lower() == ".txt":
+        return _detect_em410x_content(path)
+    return _detect_mf1_content(path) or _detect_mfu_content(path)
 
 
 def _parse_em410x_id(path):
@@ -568,6 +675,7 @@ def _scan_dumps():
             names = sorted(os.listdir(directory))
         except OSError:
             continue
+        family = os.path.basename(os.path.normpath(directory)).lower()
         for name in names:
             if not name.lower().endswith((".bin", ".txt")):
                 continue
@@ -575,7 +683,7 @@ def _scan_dumps():
             if path in seen:
                 continue
             seen.add(path)
-            meta = _detect_dump(path)
+            meta = _detect_dump(path, family)
             if meta is None:
                 continue
             try:
@@ -687,7 +795,7 @@ class UltraBackend(object):
         for entry in dumps:
             name = entry["name"]
             short = name if len(name) <= 28 else name[:27] + "~"
-            note = _note_for(store, entry["meta"]["kind"], name)
+            note = _note_for(store, entry["meta"]["kind"], entry["uid"])
             if note:
                 short = "%s  %s" % (note, short)
                 if len(short) > 34:

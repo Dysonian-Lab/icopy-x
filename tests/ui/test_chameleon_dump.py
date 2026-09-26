@@ -316,6 +316,79 @@ def test_tiny_read_no_slots_is_error(monkeypatch, tmp_path):
 
 
 # ======================================================================
+# Renamed dumps: detect family/type from the dump contents
+# ======================================================================
+
+def _mf1_block0_bin(uid_hex, blocks):
+    data = bytearray(blocks * 16)
+    uid = bytes.fromhex(uid_hex)
+    data[0:len(uid)] = uid
+    data[4] = data[0] ^ data[1] ^ data[2] ^ data[3]
+    data[5] = 0x08
+    data[6:8] = bytes.fromhex('0400')
+    return bytes(data)
+
+
+def test_ultra_scan_renamed_mf1_1k(monkeypatch, tmp_path):
+    (tmp_path / 'FRONT-DOOR.bin').write_bytes(_mf1_block0_bin('DEADBEEF', 64))
+    monkeypatch.setenv('ULTRA_WRITER_DUMP_DIR', str(tmp_path))
+    dumps = ux._scan_dumps()
+    assert len(dumps) == 1
+    assert dumps[0]['meta']['kind'] == 'mf1'
+    assert dumps[0]['meta']['blocks'] == 64
+    assert dumps[0]['uid'] == 'DEADBEEF'
+
+
+def test_ultra_scan_renamed_mf1_plus2k(monkeypatch, tmp_path):
+    (tmp_path / 'BIG.bin').write_bytes(_mf1_block0_bin('DEADBEEF', 128))
+    monkeypatch.setenv('ULTRA_WRITER_DUMP_DIR', str(tmp_path))
+    dumps = ux._scan_dumps()
+    assert dumps[0]['meta']['blocks'] == 128
+    assert dumps[0]['meta']['type_name'] == 'MIFARE Classic 2K'
+
+
+def test_ultra_scan_renamed_mfu(monkeypatch, tmp_path):
+    pages = bytearray(45 * 4)
+    pages[0:3] = bytes.fromhex('1D3232')
+    pages[4:8] = bytes.fromhex('0E950000')
+    (tmp_path / 'tag.bin').write_bytes(b'\x00' * 56 + bytes(pages))
+    monkeypatch.setenv('ULTRA_WRITER_DUMP_DIR', str(tmp_path))
+    dumps = ux._scan_dumps()
+    assert dumps[0]['meta']['kind'] == 'mfu'
+    assert dumps[0]['meta']['type_name'] == 'NTAG213'
+    assert dumps[0]['uid'] == '1D32320E950000'
+
+
+def test_ultra_scan_renamed_em410x(monkeypatch, tmp_path):
+    (tmp_path / 'KEYFOB.txt').write_text('0000BC614E\n0000BC614E\n')
+    monkeypatch.setenv('ULTRA_WRITER_DUMP_DIR', str(tmp_path))
+    dumps = ux._scan_dumps()
+    assert dumps[0]['meta']['kind'] == 'em410x'
+    assert dumps[0]['uid'] == '0000BC614E'
+
+
+def test_tiny_scan_renamed_mf1(monkeypatch, tmp_path):
+    (tmp_path / 'FRONT-DOOR.bin').write_bytes(_mf1_block0_bin('0AD828D2', 64))
+    monkeypatch.setenv('TINY_WRITER_DUMP_DIR', str(tmp_path))
+    dumps = tx._scan_dumps()
+    assert dumps[0]['meta']['kind'] == 'mf1'
+    assert dumps[0]['meta']['config'] == 'MF_CLASSIC_1K'
+    assert dumps[0]['uid'] == '0AD828D2'
+
+
+def test_tiny_scan_renamed_mfu(monkeypatch, tmp_path):
+    pages = bytearray(45 * 4)
+    pages[0:3] = bytes.fromhex('1D3232')
+    pages[4:8] = bytes.fromhex('0E950000')
+    (tmp_path / 'tag.bin').write_bytes(b'\x00' * 56 + bytes(pages))
+    monkeypatch.setenv('TINY_WRITER_DUMP_DIR', str(tmp_path))
+    dumps = tx._scan_dumps()
+    assert dumps[0]['meta']['kind'] == 'mfu'
+    assert dumps[0]['meta']['config'] == 'NTAG213'
+    assert dumps[0]['uid'] == '1D32320E950000'
+
+
+# ======================================================================
 # Detection
 # ======================================================================
 
