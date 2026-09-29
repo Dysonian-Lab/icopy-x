@@ -74,63 +74,19 @@ def name_uid(name):
     return ''
 
 
-# Content fallbacks for renamed dumps: the values are read from the dump
-# files themselves, mirroring the device's own Tag Info.
-_MFU_HEADER_LEN = 56
-
-
-def _read_sibling(path, ext):
-    """Bytes of the file in *path*'s set with extension *ext*, or None."""
-    try:
-        with open(os.path.splitext(path)[0] + ext, 'rb') as fh:
-            return fh.read()
-    except OSError:
-        return None
-
-
 def _is_hex(text, length=None):
     if not text or (length is not None and len(text) != length):
         return False
     return all(c in '0123456789ABCDEFabcdef' for c in text)
 
 
-def _json_card(path):
-    """The ``Card`` mapping from the ``.json`` sidecar, or ``{}``."""
-    raw = _read_sibling(path, '.json')
-    if not raw:
-        return {}
-    try:
-        card = json.loads(raw.decode('utf-8', 'ignore')).get('Card', {})
-    except ValueError:
-        return {}
-    return card if isinstance(card, dict) else {}
-
-
-def _mf1_uid_from_bin(data):
-    """``(uid, uid_len)`` from MIFARE Classic block 0, or None.
-
-    Same checks iceman uses when saving: 4-byte UID when the BCC matches and
-    the ATQA size bits are clear, 7-byte when the double-size bit is set.
-    """
-    if not data or len(data) < 10:
-        return None
-    d = bytearray(data[:16])
-    if len(d) >= 8 and (d[0] ^ d[1] ^ d[2] ^ d[3]) == d[4] and (d[6] & 0xC0) == 0:
-        return bytes(d[0:4]).hex().upper(), 4
-    if len(d) >= 9 and (d[8] & 0xC0) == 0x40:
-        return bytes(d[0:7]).hex().upper(), 7
-    return None
-
-
-def _mfu_uid_from_bin(data):
-    """7-byte UID from an MF0/NTAG ``.bin`` page image, or None."""
-    if not data or len(data) < _MFU_HEADER_LEN + 8:
-        return None
-    body = data[_MFU_HEADER_LEN:]
-    return (body[0:3] + body[4:8]).hex().upper()
-
-
 def _em410x_uid_from_text(path):
+    """10-hex EM410x identity from a saved LF ``.txt`` dump, or ''.
+
+    ``appfiles`` has no EM410x reader (core doesn't need one), so a renamed
+    LF dump is resolved here.  The saved line is the raw id (optionally
+    ``k=v``), as written by the LF readers.
+    """
     try:
         with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
             text = fh.read()
@@ -150,33 +106,21 @@ def uid_from_dump(path, family=None):
 
     Dumps can be renamed on the device, and the built-in Tag Info then reads
     the values from the files instead of the name; a note keyed by UID must
-    do the same.  *family* (``mf1`` / ``mfu`` / ``em410x``) picks the content
-    reader; when it is omitted it is guessed from the folder name.  Returns
-    ``''`` when no UID can be established.
+    do the same.  The content values come from the shared ``appfiles``
+    readers (``dump_uid``).  *family* (``em410x``) selects this module's own
+    reader, the one family core doesn't cover.  Returns ``''`` when no UID
+    can be established.
     """
     uid = name_uid(path)
     if uid:
         return uid
+    import appfiles
+    uid = appfiles.dump_uid(path)
+    if uid:
+        return uid
     if not family:
         family = os.path.basename(os.path.dirname(path)).lower()
-    if family == 'mf1':
-        uid_hex = (_json_card(path).get('UID') or '').strip()
-        if _is_hex(uid_hex) and len(uid_hex) in (8, 14):
-            return uid_hex.upper()
-        data = _read_sibling(path, '.bin')
-        found = _mf1_uid_from_bin(data) if data is not None else None
-        if found:
-            return found[0]
-    elif family == 'mfu':
-        uid_hex = (_json_card(path).get('UID') or '').strip()
-        if _is_hex(uid_hex) and len(uid_hex) == 14:
-            return uid_hex.upper()
-        data = _read_sibling(path, '.bin')
-        if data is not None:
-            found = _mfu_uid_from_bin(data)
-            if found:
-                return found
-    elif family == 'em410x':
+    if family == 'em410x':
         return _em410x_uid_from_text(path)
     return ''
 

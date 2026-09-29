@@ -106,52 +106,61 @@ def _mf1_bin(uid_hex, blocks=64, seven=False):
     return bytes(data)
 
 
-# uid_from_dump: filename first, then the dump contents (renamed dumps)
+# uid_from_dump: filename first, then the shared appfiles content readers.
+# The readers pick the family from the dump folder, so the files live under
+# mf1/ mfu/ em410x/ like on the device.
+
+def _in(tmp_path, family, name):
+    p = tmp_path / family / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
 
 def test_uid_from_dump_uses_filename(tmp_path):
-    p = tmp_path / 'M1-1K-4B_DAEFB416_1.bin'
+    p = _in(tmp_path, 'mf1', 'M1-1K-4B_DAEFB416_1.bin')
     p.write_bytes(_mf1_bin('DAEFB416'))
     assert store.uid_from_dump(str(p), 'mf1') == 'DAEFB416'
 
 
 def test_uid_from_dump_renamed_mf1_block0(tmp_path):
-    p = tmp_path / 'FRONT-DOOR.bin'
+    p = _in(tmp_path, 'mf1', 'FRONT-DOOR.bin')
     p.write_bytes(_mf1_bin('DEADBEEF'))
     assert store.uid_from_dump(str(p), 'mf1') == 'DEADBEEF'
 
 
 def test_uid_from_dump_renamed_mf1_seven_byte(tmp_path):
-    p = tmp_path / 'GATE-2.bin'
+    p = _in(tmp_path, 'mf1', 'GATE-2.bin')
     p.write_bytes(_mf1_bin('AABBCCDDEEFF00', seven=True))
     assert store.uid_from_dump(str(p), 'mf1') == 'AABBCCDDEEFF00'
 
 
 def test_uid_from_dump_renamed_mfu_from_bin(tmp_path):
-    pages = bytearray(45 * 4)
-    pages[0:3] = bytes.fromhex('1D3232')
-    pages[4:8] = bytes.fromhex('0E950000')
-    p = tmp_path / 'tag.bin'
-    p.write_bytes(b'\x00' * 56 + bytes(pages))
+    raw = bytearray(56 + 45 * 4)
+    raw[11] = 44                       # header's last page index
+    raw[56:59] = bytes.fromhex('1D3232')
+    raw[60:64] = bytes.fromhex('0E950000')
+    p = _in(tmp_path, 'mfu', 'tag.bin')
+    p.write_bytes(bytes(raw))
     assert store.uid_from_dump(str(p), 'mfu') == '1D32320E950000'
 
 
 def test_uid_from_dump_renamed_mfu_from_json(tmp_path):
-    p = tmp_path / 'tag.bin'
+    p = _in(tmp_path, 'mfu', 'tag.bin')
     p.write_bytes(b'\x00' * 236)
-    (tmp_path / 'tag.json').write_text(
+    p.with_suffix('.json').write_text(
         json.dumps({'Card': {'UID': '1D32320E950000'}, 'blocks': {}}),
         encoding='utf-8')
     assert store.uid_from_dump(str(p), 'mfu') == '1D32320E950000'
 
 
 def test_uid_from_dump_renamed_em410x(tmp_path):
-    p = tmp_path / 'KEYFOB.txt'
+    p = _in(tmp_path, 'em410x', 'KEYFOB.txt')
     p.write_text('0000BC614E\n0000BC614E\n', encoding='utf-8')
     assert store.uid_from_dump(str(p), 'em410x') == '0000BC614E'
 
 
 def test_uid_from_dump_unknown_is_empty(tmp_path):
-    p = tmp_path / 'mystery.bin'
+    p = _in(tmp_path, 'mf1', 'mystery.bin')
     p.write_bytes(b'\x01\x02\x03')
     assert store.uid_from_dump(str(p), 'mf1') == ''
 
