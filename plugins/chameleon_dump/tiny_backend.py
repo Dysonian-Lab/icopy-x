@@ -60,10 +60,9 @@ NTAG_CFG = {
 MFU_NAME_RE = re.compile(
     r"^(NTAG213|NTAG215|NTAG216)_[0-9A-Fa-f]+_\d+$", re.IGNORECASE)
 
-# Content fallbacks for dumps renamed on the device (see ultra_backend):
-# family from the dump sub-directory, size from the .bin length, UID from
-# block 0 (MIFARE Classic) or the page image (NTAG).
-_MF1_SIZE_BY_BYTES = {320: "mini", 1024: "1k", 2048: "plus-2k", 4096: "4k"}
+# Content fallbacks for dumps renamed on the device (see ultra_backend).
+# MIFARE Classic uses the shared appfiles readers; the NTAG type comes from
+# the page count, which core doesn't provide.
 _MFU_PAGES_BY_TYPE = {45: "NTAG213", 135: "NTAG215", 231: "NTAG216"}
 _FAMILY_DIRS = ("mf1", "mfu")
 
@@ -122,63 +121,16 @@ def _family_of(path):
     return family if family in _FAMILY_DIRS else ""
 
 
-def _read_bin(path):
-    try:
-        with open(path, "rb") as fh:
-            return fh.read()
-    except OSError:
-        return None
-
-
-def _json_card(path):
-    json_path = os.path.splitext(path)[0] + ".json"
-    if not os.path.isfile(json_path):
-        return {}
-    try:
-        with open(json_path, "r", errors="ignore") as fh:
-            card = json.load(fh).get("Card", {})
-    except (ValueError, OSError):
-        return {}
-    return card if isinstance(card, dict) else {}
-
-
-def _is_hex(value, length=None):
-    if not value or (length is not None and len(value) != length):
-        return False
-    return all(c in "0123456789ABCDEFabcdef" for c in value)
-
-
-def _mf1_uid_from_block0(data):
-    """``(uid, uid_len)`` from MIFARE Classic block 0, or None."""
-    if not data or len(data) < 10:
-        return None
-    d = bytearray(data[:16])
-    if len(d) >= 8 and (d[0] ^ d[1] ^ d[2] ^ d[3]) == d[4] and (d[6] & 0xC0) == 0:
-        return bytes(d[0:4]).hex().upper(), 4
-    if len(d) >= 9 and (d[8] & 0xC0) == 0x40:
-        return bytes(d[0:7]).hex().upper(), 7
-    return None
-
-
-def _uidlen_from(path):
-    uid_hex = (_json_card(path).get("UID") or "").strip()
-    if _is_hex(uid_hex) and len(uid_hex) == 14:
-        return 7
-    if _is_hex(uid_hex) and len(uid_hex) == 8:
-        return 4
-    found = _mf1_uid_from_block0(_read_bin(path))
-    return found[1] if found is not None else 4
-
-
 def _detect_mf1_content(path):
-    if os.path.splitext(path)[1].lower() != ".bin":
-        return None
-    variant = _MF1_SIZE_BY_BYTES.get(len(_read_bin(path) or b""))
-    cap = MFC_CAP.get(variant) if variant else None
+    """MIFARE Classic meta for a renamed dump, via the shared appfiles readers."""
+    import appfiles
+    size = appfiles.dump_mf1_size(path)
+    cap = MFC_CAP.get(size.lower()) if size else None
     if cap is None:
         return None
     blocks, cfgs = cap
-    uidlen = _uidlen_from(path)
+    card = appfiles.dump_mf1_card(path)
+    uidlen = card[1] if card else 4
     config = cfgs.get(uidlen)
     if config is None:
         return None
