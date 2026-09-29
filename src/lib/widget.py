@@ -2203,9 +2203,26 @@ class InputMethods:
     # Focus / navigation
     # -----------------------------------------------------------------
 
+    def _used_length(self) -> int:
+        """Text mode: non-padding characters before the trailing spaces.
+
+        The cursor may sit in ``[0, used]`` -- position ``used`` is the
+        append slot -- so it never roams over the untouched padding.
+        """
+        used = self._length
+        while used > 0 and self._chars[used - 1] == ' ':
+            used -= 1
+        return used
+
+    def _focus_max(self) -> int:
+        """Highest index the focus may take (text mode stops at the end)."""
+        if self._format == 'text':
+            return self._used_length()
+        return self._length - 1
+
     def setFocus(self, idx: int):
         """Set which character index is focused."""
-        self._focus = max(0, min(idx, self._length - 1))
+        self._focus = max(0, min(idx, self._focus_max()))
         if self._showing:
             self._redraw()
 
@@ -2214,14 +2231,20 @@ class InputMethods:
         return self._focus
 
     def nextChar(self):
-        """Move focus one position to the right (wraps)."""
-        self._focus = (self._focus + 1) % self._length
+        """Move focus right (wraps in hex/dec, stops at the end in text)."""
+        if self._format == 'text':
+            self._focus = min(self._focus + 1, self._used_length())
+        else:
+            self._focus = (self._focus + 1) % self._length
         if self._showing:
             self._redraw()
 
     def prevChar(self):
-        """Move focus one position to the left (wraps)."""
-        self._focus = (self._focus - 1) % self._length
+        """Move focus left (wraps in hex/dec, stops at 0 in text)."""
+        if self._format == 'text':
+            self._focus = max(self._focus - 1, 0)
+        else:
+            self._focus = (self._focus - 1) % self._length
         if self._showing:
             self._redraw()
 
@@ -2377,12 +2400,18 @@ class InputMethods:
     # The field length is small enough to fit one screen, so no scrolling.
     _TEXT_FONT_SIZE = 14
     _TEXT_GUTTER = 15
-    _TEXT_LINE_H = 26
+    _TEXT_RIGHT_MARGIN = 8     # keep the last column clear of the edge
+    _TEXT_LINE_PAD = 8         # extra leading between text rows
     _TEXT_CHAR_W_FALLBACK = 8  # used when the canvas can't measure the font
+    _TEXT_TEXT_H_FALLBACK = 18
 
-    def _text_char_width(self, font_spec):
-        """Advance width of one monospace character, measured if possible."""
-        sample = 'M' * 20
+    def _text_metrics(self, font_spec):
+        """``(char_width, text_height)`` for the font, measured if possible.
+
+        The sample has an ascender and a descender so the height is the
+        full line box, which the cursor block matches.
+        """
+        sample = 'Mg' * 10
         try:
             tid = self._canvas.create_text(
                 -1000, -1000, text=sample, font=font_spec, anchor='nw')
@@ -2390,16 +2419,21 @@ class InputMethods:
             self._canvas.delete(tid)
             if bbox:
                 width = bbox[2] - bbox[0]
-                if width > 0:
-                    return max(1, int(round(width / len(sample))))
+                height = bbox[3] - bbox[1]
+                char_w = (max(1, int(round(width / len(sample))))
+                          if width > 0 else self._TEXT_CHAR_W_FALLBACK)
+                text_h = height if height > 0 else self._TEXT_TEXT_H_FALLBACK
+                return char_w, text_h
         except Exception:
             pass
-        return self._TEXT_CHAR_W_FALLBACK
+        return self._TEXT_CHAR_W_FALLBACK, self._TEXT_TEXT_H_FALLBACK
 
     def _redraw_text(self):
         font_spec = resources.get_font(self._TEXT_FONT_SIZE)
-        char_w = self._text_char_width(font_spec)
-        cols = max(1, (SCREEN_W - 2 * self._TEXT_GUTTER) // char_w)
+        char_w, text_h = self._text_metrics(font_spec)
+        line_h = text_h + self._TEXT_LINE_PAD
+        usable = SCREEN_W - 2 * self._TEXT_GUTTER - self._TEXT_RIGHT_MARGIN
+        cols = max(1, usable // char_w)
         x0 = self._TEXT_GUTTER
         y0 = self._y + 8
 
@@ -2407,21 +2441,22 @@ class InputMethods:
         for i in range(lines):
             text = ''.join(self._chars[i * cols:(i + 1) * cols])
             self._canvas.create_text(
-                x0, y0 + i * self._TEXT_LINE_H, text=text,
+                x0, y0 + i * line_h, text=text,
                 fill=self._data_color, font=font_spec, anchor='nw',
                 tags=self._tag_char)
 
-        # Reverse-video cursor on the focused character.
+        # Reverse-video cursor: a block the size of the glyph box, with the
+        # character redrawn white on top and the same anchor as the text row
+        # so it lines up exactly.
         row, col = divmod(self._focus, cols)
         cx = x0 + col * char_w
-        cy = y0 + row * self._TEXT_LINE_H
+        cy = y0 + row * line_h
         self._canvas.create_rectangle(
-            cx, cy, cx + char_w, cy + self._TEXT_LINE_H,
+            cx, cy, cx + char_w, cy + text_h,
             fill='#000000', outline='', tags=self._tag_cursor)
         self._canvas.create_text(
-            cx + char_w // 2, cy + self._TEXT_LINE_H // 2,
-            text=self._chars[self._focus], fill='#FFFFFF',
-            font=font_spec, anchor='center', tags=self._tag_cursor)
+            cx, cy, text=self._chars[self._focus], fill='#FFFFFF',
+            font=font_spec, anchor='nw', tags=self._tag_cursor)
 
 
 # =====================================================================

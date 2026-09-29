@@ -391,6 +391,21 @@ MULTILINE_UI = {
 }
 
 
+def test_input_text_cursor_stops_at_content_end(env):
+    act = _start_input(ui=MULTILINE_UI)
+    widget = act._input_widget
+    widget.setValue('hi')
+    widget.setFocus(50)                 # clamps to the append slot
+    assert widget.getFocus() == 2
+    widget.nextChar()                   # no roaming into the padding
+    assert widget.getFocus() == 2
+    widget.setFocus(0)
+    widget.prevChar()                   # no wrap backwards
+    assert widget.getFocus() == 0
+    widget.nextChar(); widget.nextChar(); widget.nextChar()
+    assert widget.getFocus() == 2
+
+
 def test_input_text_soft_wraps_and_draws_reverse_cursor(env):
     act = _start_input(ui=MULTILINE_UI)
     widget = act._input_widget
