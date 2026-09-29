@@ -2151,6 +2151,7 @@ class InputMethods:
             placeholder[:length].ljust(length, '0' if format == 'hex' else ' ')
         )
         self._focus = 0
+        self._scroll = 0  # first visible text line (text mode only)
 
         # Character sets the roll keys cycle through
         if format == 'hex':
@@ -2372,9 +2373,11 @@ class InputMethods:
                 tags=self._tag_char,
             )
 
-    # Text mode: a command-line-like editor -- soft-wrapped plain text with
-    # a reverse-video cursor instead of boxes, so a note stays readable.
-    # The field length is small enough to fit one screen, so no scrolling.
+    # Text mode: a command-line-like editor.  The value is a plain string,
+    # soft-wrapped to the screen at word boundaries (spaces); a word longer
+    # than a line is hard-broken.  A reverse-video cursor marks the focused
+    # character, and the view scrolls only if the text needs more rows than
+    # fit (dormant for short notes).
     _TEXT_FONT_SIZE = 14
     _TEXT_GUTTER = 15
     _TEXT_LINE_PAD = 3         # extra leading between text rows
@@ -2404,32 +2407,81 @@ class InputMethods:
             pass
         return self._TEXT_CHAR_W_FALLBACK, self._TEXT_TEXT_H_FALLBACK
 
+    def _wrap_lines(self, cols):
+        """Greedy word wrap into ``(start, end)`` index ranges.
+
+        Each line fills up to *cols* characters, breaking at the last space
+        found; a window with no usable space (a word longer than the line) is
+        hard-broken.  The space at a break is consumed (not shown).
+        """
+        text = self._chars
+        n = len(text)
+        lines = []
+        start = 0
+        while start < n:
+            limit = min(start + cols, n)
+            end = -1
+            for i in range(limit - 1, start, -1):
+                if text[i] == ' ':
+                    end = i
+                    break
+            if end > start:
+                lines.append((start, end))
+                start = end + 1
+            else:
+                lines.append((start, limit))
+                start = limit
+        return lines or [(0, n)]
+
+    def _cursor_cell(self, lines, idx):
+        """``(row, col)`` of the focused index under the wrapped layout."""
+        for r, (s, e) in enumerate(lines):
+            if s <= idx < e:
+                return r, idx - s
+            if idx == e:
+                nxt = lines[r + 1][0] if r + 1 < len(lines) else None
+                if nxt != e:            # a space was consumed at the break
+                    return r, e - s
+        s, e = lines[-1]
+        return len(lines) - 1, max(0, min(idx - s, e - s))
+
     def _redraw_text(self):
         font_spec = resources.get_font(self._TEXT_FONT_SIZE)
         char_w, text_h = self._text_metrics(font_spec)
         line_h = text_h + self._TEXT_LINE_PAD
         usable = SCREEN_W - 2 * self._TEXT_GUTTER
-        # Pick the column count so the field is a whole number of rows (the
-        # last row is not left short), staying within the screen width.
-        natural = max(1, usable // char_w)
-        rows = max(1, (self._length + natural - 1) // natural)
-        cols = max(1, min(natural, (self._length + rows - 1) // rows))
+        cols = max(1, usable // char_w)
         x0 = max(self._TEXT_GUTTER, (SCREEN_W - cols * char_w) // 2)
         y0 = self._y + 8
+        bottom = self._y + self._h - 6
+        visible = max(1, (bottom - y0) // line_h)
 
-        for i in range(rows):
-            text = ''.join(self._chars[i * cols:(i + 1) * cols]).ljust(cols)
+        lines = self._wrap_lines(cols)
+        row, col = self._cursor_cell(lines, self._focus)
+
+        # Keep the cursor line on screen (dormant for a short note).
+        offset = max(0, min(self._scroll, max(0, len(lines) - visible)))
+        if row < offset:
+            offset = row
+        elif row >= offset + visible:
+            offset = row - visible + 1
+        self._scroll = offset
+
+        for i in range(visible):
+            li = offset + i
+            if li >= len(lines):
+                break
+            s, e = lines[li]
             self._canvas.create_text(
-                x0, y0 + i * line_h, text=text,
+                x0, y0 + i * line_h, text=''.join(self._chars[s:e]),
                 fill=self._data_color, font=font_spec, anchor='nw',
                 tags=self._tag_char)
 
         # Reverse-video cursor: a block the size of the glyph box, with the
         # character redrawn white on top and the same anchor as the text row
         # so it lines up exactly.
-        row, col = divmod(self._focus, cols)
         cx = x0 + col * char_w
-        cy = y0 + row * line_h
+        cy = y0 + (row - offset) * line_h
         self._canvas.create_rectangle(
             cx, cy, cx + char_w, cy + text_h,
             fill='#000000', outline='', tags=self._tag_cursor)
