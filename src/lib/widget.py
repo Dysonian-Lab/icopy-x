@@ -35,6 +35,7 @@ createTag utility that all widgets share.
 
 import math
 import logging
+import unicodedata
 from typing import List, Optional, Callable
 
 from lib._constants import (
@@ -2407,43 +2408,63 @@ class InputMethods:
             pass
         return self._TEXT_CHAR_W_FALLBACK, self._TEXT_TEXT_H_FALLBACK
 
-    def _wrap_lines(self, cols):
-        """Greedy word wrap into ``(start, end)`` index ranges.
+    @staticmethod
+    def _cell_width(ch):
+        """Display columns a character occupies (full-width CJK = 2)."""
+        return 2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1
 
-        Each line fills up to *cols* characters, breaking at the last space
-        found; a window with no usable space (a word longer than the line) is
-        hard-broken.  The space at a break is consumed (not shown).
+    def _line_width(self, start, end):
+        """Display width, in columns, of ``_chars[start:end]``."""
+        return sum(self._cell_width(c) for c in self._chars[start:end])
+
+    def _wrap_lines(self, cols):
+        """Greedy wrap into ``(start, end)`` ranges by display width.
+
+        A line holds up to *cols* display columns; it breaks at the last
+        space when one fits (Latin words stay whole), otherwise hard-breaks
+        (a run of CJK, or a word longer than the line).  A break space is
+        consumed (not shown).
         """
         text = self._chars
         n = len(text)
         lines = []
         start = 0
         while start < n:
-            limit = min(start + cols, n)
-            end = -1
-            for i in range(limit - 1, start, -1):
+            width = 0
+            end = start
+            while end < n and width + self._cell_width(text[end]) <= cols:
+                width += self._cell_width(text[end])
+                end += 1
+            if end >= n:
+                lines.append((start, n))
+                break
+            brk = -1
+            for i in range(end - 1, start - 1, -1):
                 if text[i] == ' ':
-                    end = i
+                    brk = i
                     break
-            if end > start:
-                lines.append((start, end))
-                start = end + 1
+            if brk > start:
+                lines.append((start, brk))
+                start = brk + 1
             else:
-                lines.append((start, limit))
-                start = limit
+                if end == start:        # a single column wider than the line
+                    end = start + 1
+                lines.append((start, end))
+                start = end
         return lines or [(0, n)]
 
     def _cursor_cell(self, lines, idx):
-        """``(row, col)`` of the focused index under the wrapped layout."""
+        """``(row, col)`` (col in display columns) of the focused index."""
         for r, (s, e) in enumerate(lines):
             if s <= idx < e:
-                return r, idx - s
+                return r, self._line_width(s, idx)
             if idx == e:
                 nxt = lines[r + 1][0] if r + 1 < len(lines) else None
                 if nxt != e:            # a space was consumed at the break
-                    return r, e - s
+                    return r, self._line_width(s, e)
         s, e = lines[-1]
-        return len(lines) - 1, max(0, min(idx - s, e - s))
+        return len(lines) - 1, min(self._line_width(s, idx),
+                                   self._line_width(s, e))
 
     def _redraw_text(self):
         font_spec = resources.get_font(self._TEXT_FONT_SIZE)
@@ -2482,8 +2503,9 @@ class InputMethods:
         # so it lines up exactly.
         cx = x0 + col * char_w
         cy = y0 + (row - offset) * line_h
+        cw = self._cell_width(self._chars[self._focus]) * char_w
         self._canvas.create_rectangle(
-            cx, cy, cx + char_w, cy + text_h,
+            cx, cy, cx + cw, cy + text_h,
             fill='#000000', outline='', tags=self._tag_cursor)
         self._canvas.create_text(
             cx, cy, text=self._chars[self._focus], fill='#FFFFFF',

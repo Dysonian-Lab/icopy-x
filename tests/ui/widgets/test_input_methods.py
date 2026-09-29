@@ -282,3 +282,19 @@ class TestTextWordWrap:
         assert w._cursor_cell(lines, 19) == (0, 19)   # the consumed space
         assert w._cursor_cell(lines, 20) == (1, 0)
         assert w._cursor_cell(lines, 40) == (2, 0)
+
+    def test_cjk_counts_as_two_columns(self):
+        w = self._text('中文测试')
+        assert self._strings(w, 4) == ['中文', '测试']
+
+    def test_mixed_cjk_and_latin_breaks_on_space(self):
+        w = self._text('大门 front door')
+        assert self._strings(w, 8) == ['大门', 'front', 'door']
+
+    def test_cursor_column_is_display_columns(self):
+        w = self._text('中文测试')
+        lines = w._wrap_lines(4)
+        assert w._cursor_cell(lines, 0) == (0, 0)
+        assert w._cursor_cell(lines, 1) == (0, 2)     # after one Han char
+        assert w._cursor_cell(lines, 2) == (1, 0)     # wrapped to row 2
+        assert w._cursor_cell(lines, 3) == (1, 2)
