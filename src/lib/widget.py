@@ -2433,13 +2433,16 @@ class InputMethods:
         char_w, text_h = self._text_metrics(font_spec)
         line_h = text_h + self._TEXT_LINE_PAD
         usable = SCREEN_W - 2 * self._TEXT_GUTTER - self._TEXT_RIGHT_MARGIN
-        cols = max(1, usable // char_w)
+        # Pick the column count so the field is a whole number of rows (the
+        # last row is not left short), staying within the screen width.
+        natural = max(1, usable // char_w)
+        rows = max(1, (self._length + natural - 1) // natural)
+        cols = max(1, min(natural, (self._length + rows - 1) // rows))
         x0 = self._TEXT_GUTTER
         y0 = self._y + 8
 
-        lines = (self._length + cols - 1) // cols
-        for i in range(lines):
-            text = ''.join(self._chars[i * cols:(i + 1) * cols])
+        for i in range(rows):
+            text = ''.join(self._chars[i * cols:(i + 1) * cols]).ljust(cols)
             self._canvas.create_text(
                 x0, y0 + i * line_h, text=text,
                 fill=self._data_color, font=font_spec, anchor='nw',

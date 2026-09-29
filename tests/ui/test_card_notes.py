@@ -411,8 +411,12 @@ def test_input_text_soft_wraps_and_draws_reverse_cursor(env):
     widget = act._input_widget
     widget.setValue('x' * 80)
     canvas = act.getCanvas()
-    assert len(canvas.find_withtag(widget._tag_char)) >= 2   # wrapped
-    assert canvas.find_withtag(widget._tag_cursor)            # reverse cursor
+    lines = canvas.find_withtag(widget._tag_char)
+    assert len(lines) >= 2                                   # wrapped
+    texts = [canvas.itemcget(i, 'text') for i in lines]
+    assert len(set(len(t) for t in texts)) == 1              # whole rows
+    assert sum(len(t) for t in texts) == 80                  # nothing dropped
+    assert canvas.find_withtag(widget._tag_cursor)           # reverse cursor
     texts = [canvas.itemcget(i, 'text')
              for i in canvas.find_withtag('_jr_content')
              if canvas.type(i) == 'text']
