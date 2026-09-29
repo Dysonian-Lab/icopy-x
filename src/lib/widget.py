@@ -2325,7 +2325,7 @@ class InputMethods:
     # -----------------------------------------------------------------
 
     def _redraw(self):
-        """Clear and redraw all input boxes and characters."""
+        """Clear and redraw the input widget."""
         self._canvas.delete(self._tag_box)
         self._canvas.delete(self._tag_char)
         self._canvas.delete(self._tag_cursor)
@@ -2333,6 +2333,13 @@ class InputMethods:
         if not self._showing:
             return
 
+        if self._format == 'text':
+            self._redraw_text()
+        else:
+            self._redraw_boxes()
+
+    def _redraw_boxes(self):
+        """Hex/dec mode: a row of per-character boxes (unchanged)."""
         font_spec = resources.get_font(12)
 
         for i in range(self._length):
@@ -2364,6 +2371,57 @@ class InputMethods:
                 anchor='center',
                 tags=self._tag_char,
             )
+
+    # Text mode: a command-line-like editor -- soft-wrapped plain text with
+    # a reverse-video cursor instead of boxes, so a note stays readable.
+    # The field length is small enough to fit one screen, so no scrolling.
+    _TEXT_FONT_SIZE = 14
+    _TEXT_GUTTER = 15
+    _TEXT_LINE_H = 26
+    _TEXT_CHAR_W_FALLBACK = 8  # used when the canvas can't measure the font
+
+    def _text_char_width(self, font_spec):
+        """Advance width of one monospace character, measured if possible."""
+        sample = 'M' * 20
+        try:
+            tid = self._canvas.create_text(
+                -1000, -1000, text=sample, font=font_spec, anchor='nw')
+            bbox = self._canvas.bbox(tid)
+            self._canvas.delete(tid)
+            if bbox:
+                width = bbox[2] - bbox[0]
+                if width > 0:
+                    return max(1, int(round(width / len(sample))))
+        except Exception:
+            pass
+        return self._TEXT_CHAR_W_FALLBACK
+
+    def _redraw_text(self):
+        font_spec = resources.get_font(self._TEXT_FONT_SIZE)
+        char_w = self._text_char_width(font_spec)
+        cols = max(1, (SCREEN_W - 2 * self._TEXT_GUTTER) // char_w)
+        x0 = self._TEXT_GUTTER
+        y0 = self._y + 8
+
+        lines = (self._length + cols - 1) // cols
+        for i in range(lines):
+            text = ''.join(self._chars[i * cols:(i + 1) * cols])
+            self._canvas.create_text(
+                x0, y0 + i * self._TEXT_LINE_H, text=text,
+                fill=self._data_color, font=font_spec, anchor='nw',
+                tags=self._tag_char)
+
+        # Reverse-video cursor on the focused character.
+        row, col = divmod(self._focus, cols)
+        cx = x0 + col * char_w
+        cy = y0 + row * self._TEXT_LINE_H
+        self._canvas.create_rectangle(
+            cx, cy, cx + char_w, cy + self._TEXT_LINE_H,
+            fill='#000000', outline='', tags=self._tag_cursor)
+        self._canvas.create_text(
+            cx + char_w // 2, cy + self._TEXT_LINE_H // 2,
+            text=self._chars[self._focus], fill='#FFFFFF',
+            font=font_spec, anchor='center', tags=self._tag_cursor)
 
 
 # =====================================================================

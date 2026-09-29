@@ -189,11 +189,13 @@ def test_store_missing_or_bad_file_is_empty(tmp_path):
 # Note store / plugin methods
 # ----------------------------------------------------------------------
 
-def test_load_lists_cards_deduped_by_uid(env):
+def test_load_lists_cards_by_name(env):
     plugin, host = _plugin()
     plugin.load()
     assert plugin._keys == ['mfu:1D32320E950000', 'mf1:DAEFB416']
-    assert all('(no note)' in x for x in _items(host))
+    labels = _items(host)
+    assert any('NTAG213' in x for x in labels)
+    assert any('M1-1K-4B' in x for x in labels)
 
 
 def test_load_includes_renamed_dump(env):
@@ -201,7 +203,26 @@ def test_load_includes_renamed_dump(env):
     plugin, host = _plugin()
     plugin.load()
     assert 'mf1:DEADBEEF' in plugin._keys
-    assert any('DEADBEEF' in x for x in _items(host))
+    assert any('FRONT-DOOR' in x for x in _items(host))
+
+
+def test_label_is_name_then_note(env):
+    plugin, host = _plugin()
+    plugin.load()
+    key = 'mf1:DAEFB416'
+    assert plugin._label(key) == 'M1-1K-4B_DAEFB416_1'
+    plugin._notes[key] = {'note': 'Flat door'}
+    assert plugin._label(key) == 'M1-1K-4B_DAEFB41 (Flat door)'
+
+
+def test_label_truncates_long_note(env):
+    plugin, host = _plugin()
+    plugin.load()
+    key = 'mf1:DAEFB416'
+    plugin._notes[key] = {'note': 'x' * 100}
+    label = plugin._label(key)
+    assert label.endswith('~)')
+    assert len(label) <= 28
 
 
 def test_edit_save_keys_by_uid_and_reflects_in_list(env):
@@ -269,9 +290,12 @@ def test_empty_dump_dir_shows_placeholder(env):
 def test_plugin_is_a_plain_ui_plugin(env):
     cls, ui = _load()
     states = ui['states']
-    assert states['edit']['screen']['content']['type'] == 'input_text'
-    assert states['edit']['screen']['keys']['M1'] == 'input:delete'
-    assert states['edit']['screen']['keys']['M2'] == 'input:charset'
+    edit = states['edit']['screen']
+    assert edit['content']['type'] == 'input_text'
+    assert edit['content']['length'] == 80
+    assert 'hint' in edit['content']
+    assert edit['keys']['M1'] == 'input:delete'
+    assert edit['keys']['M2'] == 'input:charset'
     assert states['list']['screen']['keys']['M2'] == 'run:edit'
 
 
@@ -295,8 +319,8 @@ INPUT_UI = {
 }
 
 
-def _start_input(bundle_extra=None):
-    bundle = {'ui_definition': INPUT_UI, 'entry_class': None,
+def _start_input(bundle_extra=None, ui=None):
+    bundle = {'ui_definition': ui or INPUT_UI, 'entry_class': None,
               'manifest': {'name': 'T'}, 'translations': {}}
     bundle.update(bundle_extra or {})
     return actstack.start_activity(PluginActivity, bundle)
@@ -348,3 +372,33 @@ def test_input_text_initial_value_from_state(env):
     act.set_var('note', 'Hi')
     act._render_current_screen()
     assert act.get_input().strip() == 'Hi'
+
+
+MULTILINE_UI = {
+    'initial_state': 'edit',
+    'states': {
+        'edit': {
+            'screen': {
+                'title': 'Note',
+                'content': {'type': 'input_text', 'length': 80,
+                            'value': '{note}',
+                            'hint': 'Up/Down char   Left/Right move'},
+                'buttons': {'left': 'Del', 'right': 'ABC'},
+                'keys': {'M1': 'input:delete', 'M2': 'input:charset'},
+            },
+        },
+    },
+}
+
+
+def test_input_text_soft_wraps_and_draws_reverse_cursor(env):
+    act = _start_input(ui=MULTILINE_UI)
+    widget = act._input_widget
+    widget.setValue('x' * 80)
+    canvas = act.getCanvas()
+    assert len(canvas.find_withtag(widget._tag_char)) >= 2   # wrapped
+    assert canvas.find_withtag(widget._tag_cursor)            # reverse cursor
+    texts = [canvas.itemcget(i, 'text')
+             for i in canvas.find_withtag('_jr_content')
+             if canvas.type(i) == 'text']
+    assert any('Left/Right' in t for t in texts)              # bottom hint

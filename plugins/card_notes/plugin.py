@@ -137,16 +137,22 @@ class CardNotesPlugin(object):
         uid = self._cards[key]['uid']
         return (0 if note else 1, (note or uid).lower(), uid)
 
+    # One list row fits ~28 monospace characters (240px, font 13).
+    _LABEL_MAX = 28
+
     def _label(self, key):
+        """List row: the dump's current name, then the note in parentheses."""
+        name = os.path.splitext(
+            os.path.basename(self._cards[key]['path']))[0]
         note = store.note_text(self._notes.get(key))
-        uid = self._cards[key]['uid']
-        if note:
-            text = '%s  %s' % (note, uid)
-        elif self.host is not None:
-            text = '%s  %s' % (self.host.tr("(no note)"), uid)
-        else:
-            text = '%s  %s' % ("(no note)", uid)
-        return text[:34]
+        if not note:
+            return name[:self._LABEL_MAX]
+        name_part = name[:16]
+        note_room = self._LABEL_MAX - len(name_part) - 3   # " (" + ")"
+        note_part = note[:max(1, note_room)]
+        if len(note) > len(note_part):
+            note_part = note_part[:-1] + '~'
+        return '%s (%s)' % (name_part, note_part)
 
     @staticmethod
     def _split(key):

@@ -34,9 +34,9 @@
                 "title": "Note",
                 "content": {
                     "type": "input_text",
-                    "label": "Note (16 chars)",
-                    "length": 16,
-                    "value": "{edit_note}"
+                    "length": 80,
+                    "value": "{edit_note}",
+                    "hint": "Up/Down char   Left/Right move"
                 },
                 "buttons": {"left": "Del", "right": "ABC"},
                 "keys": {

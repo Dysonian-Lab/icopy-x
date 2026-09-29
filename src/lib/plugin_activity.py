@@ -61,6 +61,7 @@ from lib._constants import (
     KEY_M1,
     KEY_M2,
     CONTENT_Y0,
+    CONTENT_H,
     BTN_BAR_Y0,
     SCREEN_W,
     BG_COLOR,
@@ -478,6 +479,14 @@ class PluginActivity(BaseActivity):
                 if resolved:
                     self._input_widget.setValue(resolved)
             self._input_widget.show()
+            hint = content.get('hint', '')
+            if hint:
+                canvas.create_text(
+                    SCREEN_W // 2, CONTENT_Y0 + CONTENT_H - 2,
+                    text=self.tr(hint), fill='#606060',
+                    font=resources.get_font(10),
+                    anchor='s', tags='_jr_content',
+                )
         else:
             # Content only.  The button bar is owned by the framework
             # (setLeftButton/setRightButton below) so that the M1/M2
