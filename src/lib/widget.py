@@ -2203,26 +2203,9 @@ class InputMethods:
     # Focus / navigation
     # -----------------------------------------------------------------
 
-    def _used_length(self) -> int:
-        """Text mode: non-padding characters before the trailing spaces.
-
-        The cursor may sit in ``[0, used]`` -- position ``used`` is the
-        append slot -- so it never roams over the untouched padding.
-        """
-        used = self._length
-        while used > 0 and self._chars[used - 1] == ' ':
-            used -= 1
-        return used
-
-    def _focus_max(self) -> int:
-        """Highest index the focus may take (text mode stops at the end)."""
-        if self._format == 'text':
-            return self._used_length()
-        return self._length - 1
-
     def setFocus(self, idx: int):
         """Set which character index is focused."""
-        self._focus = max(0, min(idx, self._focus_max()))
+        self._focus = max(0, min(idx, self._length - 1))
         if self._showing:
             self._redraw()
 
@@ -2231,20 +2214,14 @@ class InputMethods:
         return self._focus
 
     def nextChar(self):
-        """Move focus right (wraps in hex/dec, stops at the end in text)."""
-        if self._format == 'text':
-            self._focus = min(self._focus + 1, self._used_length())
-        else:
-            self._focus = (self._focus + 1) % self._length
+        """Move focus one position to the right (wraps)."""
+        self._focus = (self._focus + 1) % self._length
         if self._showing:
             self._redraw()
 
     def prevChar(self):
-        """Move focus left (wraps in hex/dec, stops at 0 in text)."""
-        if self._format == 'text':
-            self._focus = max(self._focus - 1, 0)
-        else:
-            self._focus = (self._focus - 1) % self._length
+        """Move focus one position to the left (wraps)."""
+        self._focus = (self._focus - 1) % self._length
         if self._showing:
             self._redraw()
 
@@ -2400,8 +2377,7 @@ class InputMethods:
     # The field length is small enough to fit one screen, so no scrolling.
     _TEXT_FONT_SIZE = 14
     _TEXT_GUTTER = 15
-    _TEXT_RIGHT_MARGIN = 8     # keep the last column clear of the edge
-    _TEXT_LINE_PAD = 8         # extra leading between text rows
+    _TEXT_LINE_PAD = 3         # extra leading between text rows
     _TEXT_CHAR_W_FALLBACK = 8  # used when the canvas can't measure the font
     _TEXT_TEXT_H_FALLBACK = 18
 
@@ -2432,13 +2408,13 @@ class InputMethods:
         font_spec = resources.get_font(self._TEXT_FONT_SIZE)
         char_w, text_h = self._text_metrics(font_spec)
         line_h = text_h + self._TEXT_LINE_PAD
-        usable = SCREEN_W - 2 * self._TEXT_GUTTER - self._TEXT_RIGHT_MARGIN
+        usable = SCREEN_W - 2 * self._TEXT_GUTTER
         # Pick the column count so the field is a whole number of rows (the
         # last row is not left short), staying within the screen width.
         natural = max(1, usable // char_w)
         rows = max(1, (self._length + natural - 1) // natural)
         cols = max(1, min(natural, (self._length + rows - 1) // rows))
-        x0 = self._TEXT_GUTTER
+        x0 = max(self._TEXT_GUTTER, (SCREEN_W - cols * char_w) // 2)
         y0 = self._y + 8
 
         for i in range(rows):

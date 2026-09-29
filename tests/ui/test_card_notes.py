@@ -292,7 +292,7 @@ def test_plugin_is_a_plain_ui_plugin(env):
     states = ui['states']
     edit = states['edit']['screen']
     assert edit['content']['type'] == 'input_text'
-    assert edit['content']['length'] == 80
+    assert edit['content']['length'] == 100
     assert 'hint' in edit['content']
     assert edit['keys']['M1'] == 'input:delete'
     assert edit['keys']['M2'] == 'input:charset'
@@ -380,7 +380,7 @@ MULTILINE_UI = {
         'edit': {
             'screen': {
                 'title': 'Note',
-                'content': {'type': 'input_text', 'length': 80,
+                'content': {'type': 'input_text', 'length': 100,
                             'value': '{note}',
                             'hint': 'Up/Down char   Left/Right move'},
                 'buttons': {'left': 'Del', 'right': 'ABC'},
@@ -391,31 +391,27 @@ MULTILINE_UI = {
 }
 
 
-def test_input_text_cursor_stops_at_content_end(env):
+def test_input_text_cursor_wraps(env):
     act = _start_input(ui=MULTILINE_UI)
     widget = act._input_widget
     widget.setValue('hi')
-    widget.setFocus(50)                 # clamps to the append slot
-    assert widget.getFocus() == 2
-    widget.nextChar()                   # no roaming into the padding
-    assert widget.getFocus() == 2
-    widget.setFocus(0)
-    widget.prevChar()                   # no wrap backwards
+    widget.setFocus(widget._length - 1)
+    widget.nextChar()                   # last -> first
     assert widget.getFocus() == 0
-    widget.nextChar(); widget.nextChar(); widget.nextChar()
-    assert widget.getFocus() == 2
+    widget.prevChar()                   # first -> last
+    assert widget.getFocus() == widget._length - 1
 
 
 def test_input_text_soft_wraps_and_draws_reverse_cursor(env):
     act = _start_input(ui=MULTILINE_UI)
     widget = act._input_widget
-    widget.setValue('x' * 80)
+    widget.setValue('x' * 100)
     canvas = act.getCanvas()
     lines = canvas.find_withtag(widget._tag_char)
     assert len(lines) >= 2                                   # wrapped
     texts = [canvas.itemcget(i, 'text') for i in lines]
     assert len(set(len(t) for t in texts)) == 1              # whole rows
-    assert sum(len(t) for t in texts) == 80                  # nothing dropped
+    assert sum(len(t) for t in texts) == 100                 # nothing dropped
     assert canvas.find_withtag(widget._tag_cursor)           # reverse cursor
     texts = [canvas.itemcget(i, 'text')
              for i in canvas.find_withtag('_jr_content')

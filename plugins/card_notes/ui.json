@@ -34,7 +34,7 @@
                 "title": "Note",
                 "content": {
                     "type": "input_text",
-                    "length": 80,
+                    "length": 100,
                     "value": "{edit_note}",
                     "hint": "Up/Down char   Left/Right move"
                 },
