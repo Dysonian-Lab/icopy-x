@@ -98,5 +98,6 @@
     "Chameleon Mini/Tiny not found.\n\n%s": "Chameleon Mini/Tiny introuvable.\n\n%s",
     "DOWNLOAD %d B identical": "DOWNLOAD %d o identiques",
     "CONFIG %s": "CONFIG %s",
-    "UID %s": "UID %s"
+    "UID %s": "UID %s",
+    "(empty)": "(vide)"
 }

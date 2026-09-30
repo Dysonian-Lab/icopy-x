@@ -98,5 +98,6 @@
     "Chameleon Mini/Tiny not found.\n\n%s": "未找到 Chameleon Mini/Tiny。\n\n%s",
     "DOWNLOAD %d B identical": "DOWNLOAD %d 字节一致",
     "CONFIG %s": "配置 %s",
-    "UID %s": "UID %s"
+    "UID %s": "UID %s",
+    "(empty)": "(空)"
 }

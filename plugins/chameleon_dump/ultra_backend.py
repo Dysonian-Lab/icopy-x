@@ -388,6 +388,26 @@ def _note_for(store, family, uid):
     return store.lookup(family, uid)
 
 
+# A list row fits ~28 monospace characters (240px, font 13).
+_LABEL_MAX = 28
+
+
+def _dump_label(name, note):
+    """List row for a dump: its name, then the note in parentheses.
+
+    The name comes first so a long note cannot push it off the row; a note
+    that does not fit is elided instead.
+    """
+    if not note:
+        return name[:_LABEL_MAX]
+    name_part = name[:16]
+    note_room = _LABEL_MAX - len(name_part) - 3   # " (" + ")"
+    note_part = note[:max(1, note_room)]
+    if len(note) > len(note_part):
+        note_part = note_part[:-1] + '~'
+    return '%s (%s)' % (name_part, note_part)
+
+
 # Dump writer (dump_writer.py, next to this file) used by the read-to-dump
 # flow.  Loaded lazily via importlib so it works whether the plugin was
 # imported through the loader or directly, and so a missing module only
@@ -744,14 +764,9 @@ class UltraBackend(object):
         store = _load_store()
         labels = []
         for entry in dumps:
-            name = entry["name"]
-            short = name if len(name) <= 28 else name[:27] + "~"
             note = _note_for(store, entry["meta"]["kind"], entry["uid"])
-            if note:
-                short = "%s  %s" % (note, short)
-                if len(short) > 34:
-                    short = short[:33] + "~"
-            labels.append({"label": short, "action": "run:choose_dump"})
+            labels.append({"label": _dump_label(entry["name"], note),
+                           "action": "run:choose_dump"})
         self._set_list_items("select_dump", labels)
 
         if device is None:
@@ -761,6 +776,11 @@ class UltraBackend(object):
                 self._set("error_msg",
                           self.tr("Chameleon Ultra not found.\n\n%s") % exc)
                 return {"status": "error"}
+
+        try:
+            self._scan_write_slots()
+        except Exception:
+            pass
 
         return {"status": "ready"}
 
@@ -793,6 +813,30 @@ class UltraBackend(object):
         self._slot = idx
         self._set("slot_text", self.tr("Slot %d") % (idx + 1))
         return {"status": "ready"}
+
+    def _scan_write_slots(self):
+        """Label the eight slots with their current content (best effort).
+
+        ``GET_SLOT_INFO`` reports every slot's configured tag type in one
+        call, so the target of a write is visible instead of a bare
+        "Slot N".  A slot with no type configured is shown as empty.
+        """
+        info = self._ultra.send(CMD_GET_SLOT_INFO, b"", timeout=CMD_TIMEOUT,
+                                step="1019 slot info")
+        empty = self.tr("(empty)")
+        labels = []
+        for i in range(8):
+            base = self.tr("Slot %d") % (i + 1)
+            hf = lf = 0
+            if len(info) >= (i + 1) * 4:
+                hf, lf = struct.unpack_from(">HH", info, i * 4)
+            entry = self._classify_slot(i, hf, lf)
+            if entry is not None:
+                label = entry["label"]
+            else:
+                label = "%s  %s" % (base, empty)
+            labels.append({"label": label, "action": "run:choose_slot"})
+        self._set_list_items("select_slot", labels)
 
     # -- read: Chameleon slot -> iCopy-X dump --------------------------
 

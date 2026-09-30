@@ -28,6 +28,8 @@ def _no_device(*a, **k):
 class FakeHost(object):
     def __init__(self):
         self._screens = {
+            'select_dump': {'screen': {'content': {'type': 'list', 'items': []}}},
+            'select_slot': {'screen': {'content': {'type': 'list', 'items': []}}},
             'read_slot': {'screen': {'content': {'type': 'list', 'items': []}}},
         }
         self._list_state = {}
@@ -52,6 +54,16 @@ class FakeHost(object):
 def _items(host):
     return [i['label'] for i in
             host._screens['read_slot']['screen']['content']['items']]
+
+
+def _slot_items(host):
+    return [i['label'] for i in
+            host._screens['select_slot']['screen']['content']['items']]
+
+
+def _dump_items(host):
+    return [i['label'] for i in
+            host._screens['select_dump']['screen']['content']['items']]
 
 
 # ======================================================================
@@ -416,3 +428,40 @@ def test_back_returns_to_menu_without_rescan():
     assert states['select_dump']['screen']['keys']['M1'] == 'set_state:menu'
     assert states['select_slot']['screen']['keys']['M1'] == 'set_state:select_dump'
     assert states['read_slot']['screen']['keys']['M1'] == 'set_state:menu'
+
+
+# ======================================================================
+# Write flow: the slot list shows what each slot currently holds
+# ======================================================================
+
+def test_ultra_write_lists_slot_content(monkeypatch, tmp_path):
+    (tmp_path / 'FRONT-DOOR.bin').write_bytes(_mf1_block0_bin('DEADBEEF', 64))
+    slots = [_mfc_slot('DAEFB416', 1001, 64)] + [{} for _ in range(7)]
+    plugin, host, _ = _ultra(monkeypatch, tmp_path, slots)
+
+    assert plugin.start()['status'] == 'ready'
+    labels = _slot_items(host)
+    assert len(labels) == 8
+    assert labels[0] == 'Slot 1  1K'
+    assert labels[1] == 'Slot 2  (empty)'
+    assert _dump_items(host) == ['FRONT-DOOR']
+
+
+def test_tiny_write_lists_slot_content_and_restores(monkeypatch, tmp_path):
+    (tmp_path / 'FRONT-DOOR.bin').write_bytes(_mf1_block0_bin('0AD828D2', 64))
+    plugin, host, tiny = _tiny(monkeypatch, tmp_path, _tiny_slots())
+
+    assert plugin.start()['status'] == 'ready'
+    labels = _slot_items(host)
+    assert len(labels) == 8
+    assert labels[0] == 'Slot 1  1K'
+    assert labels[1] == 'Slot 2  (empty)'
+    assert labels[7] == 'Slot 8  NTAG213'
+    assert tiny.active == 1          # active slot restored after the scan
+    assert _dump_items(host) == ['FRONT-DOOR']
+
+
+def test_dump_label_puts_name_first():
+    assert ux._dump_label('M1-1K-4B_DAEFB416_1', '') == 'M1-1K-4B_DAEFB416_1'
+    assert ux._dump_label('M1-1K-4B_DAEFB416_1', 'front door') == \
+        'M1-1K-4B_DAEFB41 (front do~)'
