@@ -35,6 +35,7 @@ createTag utility that all widgets share.
 
 import math
 import logging
+import unicodedata
 from typing import List, Optional, Callable
 
 from lib._constants import (
@@ -2116,6 +2117,15 @@ class InputMethods:
 
     # Hex character set for roll selection
     _HEX_CHARS = '0123456789ABCDEF'
+    _DEC_CHARS = '0123456789'
+    # Text mode cycles through these sets (M2 / input:charset)
+    _TEXT_CHARSETS = (
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+        'abcdefghijklmnopqrstuvwxyz',
+        '0123456789',
+        ' .,-_/:@#!?+*()&=<>%',
+    )
+    _CHARSET_NAMES = ('ABC', 'abc', '123', '!@#')
 
     def __init__(self, canvas, x=0, y=CONTENT_Y0, h=CONTENT_H,
                  format='hex', length=12, placeholder='FFFFFFFFFFFF'):
@@ -2142,6 +2152,16 @@ class InputMethods:
             placeholder[:length].ljust(length, '0' if format == 'hex' else ' ')
         )
         self._focus = 0
+        self._scroll = 0  # first visible text line (text mode only)
+
+        # Character sets the roll keys cycle through
+        if format == 'hex':
+            self._charsets = (self._HEX_CHARS,)
+        elif format == 'dec':
+            self._charsets = (self._DEC_CHARS,)
+        else:
+            self._charsets = self._TEXT_CHARSETS
+        self._charset = 0
 
         # Appearance
         self._bg_color = INPUT_BG_COLOR
@@ -2211,56 +2231,64 @@ class InputMethods:
     # Character roll
     # -----------------------------------------------------------------
 
-    _DEC_CHARS = '0123456789'
+    def _current_charset(self) -> str:
+        return self._charsets[self._charset]
+
+    def setCharset(self, index: int):
+        """Select the active character set by index (clamped)."""
+        self._charset = max(0, min(index, len(self._charsets) - 1))
+        self._coerce_focus_char()
+        if self._showing:
+            self._redraw()
+
+    def nextCharset(self) -> bool:
+        """Cycle to the next character set.
+
+        Returns True when the set changed (text mode), False for hex/dec.
+        """
+        if len(self._charsets) <= 1:
+            return False
+        self._charset = (self._charset + 1) % len(self._charsets)
+        self._coerce_focus_char()
+        if self._showing:
+            self._redraw()
+        return True
+
+    def getCharsetName(self) -> str:
+        """Short name of the active set ('ABC', 'abc', '123', 'sym')."""
+        if self._format == 'hex':
+            return 'HEX'
+        if self._charset < len(self._CHARSET_NAMES):
+            return self._CHARSET_NAMES[self._charset]
+        return ''
+
+    def _coerce_focus_char(self):
+        """When the set changes, show a member of it at the cursor."""
+        chars = self._current_charset()
+        if self._chars[self._focus] not in chars:
+            self._chars[self._focus] = chars[0]
+
+    def delete(self):
+        """Clear the focused character in place (no cursor move)."""
+        self._chars[self._focus] = '0' if self._format == 'hex' else ' '
+        if self._showing:
+            self._redraw()
 
     def rollUp(self):
-        """Increment the focused character.
-
-        For hex: 0->1->...->9->A->...->F->0 (wraps).
-        For dec: 0->1->...->9->0 (wraps within digits).
-        For text: increment ASCII value (wraps within printable range).
-        """
-        ch = self._chars[self._focus]
-        if self._format == 'hex':
-            idx = self._HEX_CHARS.find(ch.upper())
-            if idx < 0:
-                idx = 0
-            self._chars[self._focus] = self._HEX_CHARS[(idx + 1) % 16]
-        elif self._format == 'dec':
-            idx = self._DEC_CHARS.find(ch)
-            if idx < 0:
-                idx = 0
-            self._chars[self._focus] = self._DEC_CHARS[(idx + 1) % 10]
-        else:
-            # Printable ASCII range 0x20-0x7E
-            code = ord(ch)
-            code = code + 1 if code < 0x7E else 0x20
-            self._chars[self._focus] = chr(code)
+        """Step the focused character up within the active set (wraps)."""
+        chars = self._current_charset()
+        idx = chars.find(self._chars[self._focus])
+        idx = 0 if idx < 0 else (idx + 1) % len(chars)
+        self._chars[self._focus] = chars[idx]
         if self._showing:
             self._redraw()
 
     def rollDown(self):
-        """Decrement the focused character.
-
-        For hex: 0->F->E->...->1->0 (wraps).
-        For dec: 0->9->8->...->1->0 (wraps within digits).
-        For text: decrement ASCII value (wraps within printable range).
-        """
-        ch = self._chars[self._focus]
-        if self._format == 'hex':
-            idx = self._HEX_CHARS.find(ch.upper())
-            if idx < 0:
-                idx = 0
-            self._chars[self._focus] = self._HEX_CHARS[(idx - 1) % 16]
-        elif self._format == 'dec':
-            idx = self._DEC_CHARS.find(ch)
-            if idx < 0:
-                idx = 0
-            self._chars[self._focus] = self._DEC_CHARS[(idx - 1) % 10]
-        else:
-            code = ord(ch)
-            code = code - 1 if code > 0x20 else 0x7E
-            self._chars[self._focus] = chr(code)
+        """Step the focused character down within the active set (wraps)."""
+        chars = self._current_charset()
+        idx = chars.find(self._chars[self._focus])
+        idx = 0 if idx < 0 else (idx - 1) % len(chars)
+        self._chars[self._focus] = chars[idx]
         if self._showing:
             self._redraw()
 
@@ -2299,7 +2327,7 @@ class InputMethods:
     # -----------------------------------------------------------------
 
     def _redraw(self):
-        """Clear and redraw all input boxes and characters."""
+        """Clear and redraw the input widget."""
         self._canvas.delete(self._tag_box)
         self._canvas.delete(self._tag_char)
         self._canvas.delete(self._tag_cursor)
@@ -2307,6 +2335,13 @@ class InputMethods:
         if not self._showing:
             return
 
+        if self._format == 'text':
+            self._redraw_text()
+        else:
+            self._redraw_boxes()
+
+    def _redraw_boxes(self):
+        """Hex/dec mode: a row of per-character boxes (unchanged)."""
         font_spec = resources.get_font(12)
 
         for i in range(self._length):
@@ -2338,6 +2373,143 @@ class InputMethods:
                 anchor='center',
                 tags=self._tag_char,
             )
+
+    # Text mode: a command-line-like editor.  The value is a plain string,
+    # soft-wrapped to the screen at word boundaries (spaces); a word longer
+    # than a line is hard-broken.  A reverse-video cursor marks the focused
+    # character, and the view scrolls only if the text needs more rows than
+    # fit (dormant for short notes).
+    _TEXT_FONT_SIZE = 14
+    _TEXT_GUTTER = 15
+    _TEXT_LINE_PAD = 3         # extra leading between text rows
+    _TEXT_CHAR_W_FALLBACK = 8  # used when the canvas can't measure the font
+    _TEXT_TEXT_H_FALLBACK = 18
+
+    def _text_metrics(self, font_spec):
+        """``(char_width, text_height)`` for the font, measured if possible.
+
+        The sample has an ascender and a descender so the height is the
+        full line box, which the cursor block matches.
+        """
+        sample = 'Mg' * 10
+        try:
+            tid = self._canvas.create_text(
+                -1000, -1000, text=sample, font=font_spec, anchor='nw')
+            bbox = self._canvas.bbox(tid)
+            self._canvas.delete(tid)
+            if bbox:
+                width = bbox[2] - bbox[0]
+                height = bbox[3] - bbox[1]
+                char_w = (max(1, int(round(width / len(sample))))
+                          if width > 0 else self._TEXT_CHAR_W_FALLBACK)
+                text_h = height if height > 0 else self._TEXT_TEXT_H_FALLBACK
+                return char_w, text_h
+        except Exception:
+            pass
+        return self._TEXT_CHAR_W_FALLBACK, self._TEXT_TEXT_H_FALLBACK
+
+    @staticmethod
+    def _cell_width(ch):
+        """Display columns a character occupies (full-width CJK = 2)."""
+        return 2 if unicodedata.east_asian_width(ch) in ('W', 'F') else 1
+
+    def _line_width(self, start, end):
+        """Display width, in columns, of ``_chars[start:end]``."""
+        return sum(self._cell_width(c) for c in self._chars[start:end])
+
+    def _wrap_lines(self, cols):
+        """Greedy wrap into ``(start, end)`` ranges by display width.
+
+        A line holds up to *cols* display columns; it breaks at the last
+        space when one fits (Latin words stay whole), otherwise hard-breaks
+        (a run of CJK, or a word longer than the line).  A break space is
+        consumed (not shown).
+        """
+        text = self._chars
+        n = len(text)
+        lines = []
+        start = 0
+        while start < n:
+            width = 0
+            end = start
+            while end < n and width + self._cell_width(text[end]) <= cols:
+                width += self._cell_width(text[end])
+                end += 1
+            if end >= n:
+                lines.append((start, n))
+                break
+            brk = -1
+            for i in range(end - 1, start - 1, -1):
+                if text[i] == ' ':
+                    brk = i
+                    break
+            if brk > start:
+                lines.append((start, brk))
+                start = brk + 1
+            else:
+                if end == start:        # a single column wider than the line
+                    end = start + 1
+                lines.append((start, end))
+                start = end
+        return lines or [(0, n)]
+
+    def _cursor_cell(self, lines, idx):
+        """``(row, col)`` (col in display columns) of the focused index."""
+        for r, (s, e) in enumerate(lines):
+            if s <= idx < e:
+                return r, self._line_width(s, idx)
+            if idx == e:
+                nxt = lines[r + 1][0] if r + 1 < len(lines) else None
+                if nxt != e:            # a space was consumed at the break
+                    return r, self._line_width(s, e)
+        s, e = lines[-1]
+        return len(lines) - 1, min(self._line_width(s, idx),
+                                   self._line_width(s, e))
+
+    def _redraw_text(self):
+        font_spec = resources.get_font(self._TEXT_FONT_SIZE)
+        char_w, text_h = self._text_metrics(font_spec)
+        line_h = text_h + self._TEXT_LINE_PAD
+        usable = SCREEN_W - 2 * self._TEXT_GUTTER
+        cols = max(1, usable // char_w)
+        x0 = max(self._TEXT_GUTTER, (SCREEN_W - cols * char_w) // 2)
+        y0 = self._y + 8
+        bottom = self._y + self._h - 6
+        visible = max(1, (bottom - y0) // line_h)
+
+        lines = self._wrap_lines(cols)
+        row, col = self._cursor_cell(lines, self._focus)
+
+        # Keep the cursor line on screen (dormant for a short note).
+        offset = max(0, min(self._scroll, max(0, len(lines) - visible)))
+        if row < offset:
+            offset = row
+        elif row >= offset + visible:
+            offset = row - visible + 1
+        self._scroll = offset
+
+        for i in range(visible):
+            li = offset + i
+            if li >= len(lines):
+                break
+            s, e = lines[li]
+            self._canvas.create_text(
+                x0, y0 + i * line_h, text=''.join(self._chars[s:e]),
+                fill=self._data_color, font=font_spec, anchor='nw',
+                tags=self._tag_char)
+
+        # Reverse-video cursor: a block the size of the glyph box, with the
+        # character redrawn white on top and the same anchor as the text row
+        # so it lines up exactly.
+        cx = x0 + col * char_w
+        cy = y0 + (row - offset) * line_h
+        cw = self._cell_width(self._chars[self._focus]) * char_w
+        self._canvas.create_rectangle(
+            cx, cy, cx + cw, cy + text_h,
+            fill='#000000', outline='', tags=self._tag_cursor)
+        self._canvas.create_text(
+            cx, cy, text=self._chars[self._focus], fill='#FFFFFF',
+            font=font_spec, anchor='nw', tags=self._tag_cursor)
 
 
 # =====================================================================

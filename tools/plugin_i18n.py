@@ -76,7 +76,7 @@ CORE_LANG_DIR = os.path.join(REPO_ROOT, 'data', 'lang')
 
 # ui.json keys whose string values are shown to the user.
 TEXT_KEYS = ('title', 'text', 'label', 'message', 'header', 'subheader',
-             'page', 'value')
+             'page', 'value', 'hint')
 
 # Host API calls whose string argument reaches the screen:
 #   method -> (positional index, keyword name or None)

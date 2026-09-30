@@ -250,3 +250,51 @@ class TestInputMethodsRendering:
         text_items = _get_text_items(canvas)
         _, t = text_items[0]
         assert t['options']['fill'] == INPUT_DATA_COLOR
+
+# =================================================================
+# Text mode: word wrap layout + cursor mapping
+# =================================================================
+
+class TestTextWordWrap:
+
+    def _text(self, value):
+        w = InputMethods(MockCanvas(width=240, height=240), format='text',
+                         length=len(value))
+        w.setValue(value)
+        return w
+
+    def _strings(self, w, cols):
+        return [''.join(w._chars[s:e]) for s, e in w._wrap_lines(cols)]
+
+    def test_breaks_at_space_not_mid_word(self):
+        w = self._text('the quick brown fox jumps over the lazy dog')
+        assert self._strings(w, 20) == [
+            'the quick brown fox', 'jumps over the lazy', 'dog']
+
+    def test_word_longer_than_line_is_hard_broken(self):
+        w = self._text('a' * 30 + ' ' + 'b' * 15)
+        assert self._strings(w, 20) == ['a' * 20, 'a' * 10, 'b' * 15]
+
+    def test_cursor_maps_to_rows_and_columns(self):
+        w = self._text('the quick brown fox jumps over the lazy dog')
+        lines = w._wrap_lines(20)
+        assert w._cursor_cell(lines, 0) == (0, 0)
+        assert w._cursor_cell(lines, 19) == (0, 19)   # the consumed space
+        assert w._cursor_cell(lines, 20) == (1, 0)
+        assert w._cursor_cell(lines, 40) == (2, 0)
+
+    def test_cjk_counts_as_two_columns(self):
+        w = self._text('中文测试')
+        assert self._strings(w, 4) == ['中文', '测试']
+
+    def test_mixed_cjk_and_latin_breaks_on_space(self):
+        w = self._text('大门 front door')
+        assert self._strings(w, 8) == ['大门', 'front', 'door']
+
+    def test_cursor_column_is_display_columns(self):
+        w = self._text('中文测试')
+        lines = w._wrap_lines(4)
+        assert w._cursor_cell(lines, 0) == (0, 0)
+        assert w._cursor_cell(lines, 1) == (0, 2)     # after one Han char
+        assert w._cursor_cell(lines, 2) == (1, 0)     # wrapped to row 2
+        assert w._cursor_cell(lines, 3) == (1, 2)
