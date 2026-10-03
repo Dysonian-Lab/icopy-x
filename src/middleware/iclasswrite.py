@@ -277,7 +277,10 @@ def write(infos, bundle):
         typ = int(infos.get('type', getattr(tagtypes, 'ICLASS_LEGACY', 17)))
     except (ValueError, TypeError):
         typ = getattr(tagtypes, 'ICLASS_LEGACY', 17)
-    key_info = infos.get('key', '2020666666668888')
+    key_info = infos.get('key', '')
+    # Check bundle for key if infos didn't have one
+    if not key_info and isinstance(bundle, dict):
+        key_info = bundle.get('key', '')
 
     # Determine if bundle is a file path or dict
     if isinstance(bundle, str):
@@ -317,7 +320,10 @@ def verify(infos, bundle):
         typ = int(infos.get('type', getattr(tagtypes, 'ICLASS_LEGACY', 17)))
     except (ValueError, TypeError):
         typ = getattr(tagtypes, 'ICLASS_LEGACY', 17)
-    key_info = infos.get('key', '2020666666668888')
+    key_info = infos.get('key', '')
+    # Check bundle for key if infos didn't have one
+    if not key_info and isinstance(bundle, dict):
+        key_info = bundle.get('key', '')
 
     if isinstance(bundle, str):
         file_path = bundle

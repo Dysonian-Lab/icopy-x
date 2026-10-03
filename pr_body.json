@@ -1,0 +1,6 @@
+﻿{
+    "title":  "ICS Decoder Integration - SEOS SIO Credential Cloning",
+    "body":  "## Summary\\n\\nIntegrates ICS Decoder bridge support for reading SEOS SIO credentials and cloning to legacy iClass/Picopass or T5577 blanks.\\n\\n## Features\\n\\n- **SEOS SIO Credential Extraction**: Read SEOS/SE cards via USB ICS Decoder dongle\\n- **Dual-Frequency Support**: Write to iClass Legacy (HF 13.56 MHz) or T5577 (LF 125 kHz)\\n- **Auto-Detection**: Automatically detects target blank type on PM3 coil\\n- **Post-Write Verification**: Confirms data integrity after writing\\n- **NN Right-Shift Parsing**: Extracts Wiegand credentials from SIO PACS payloads\\n- **Multi-Key Support**: Handles both HID iClass keys and virgin Picopass transport keys\\n\\n## Working Configurations\\n\\n- 48-bit SEOS cards -\u003e iClass Legacy/Picopass\\n- 26-bit SEOS cards -\u003e T5577\\n- 26-bit SEOS cards -\u003e iClass Legacy/Picopass\\n\\n## Hardware Requirements\\n\\n- DIY ICS Decoder (tested): https://github.com/Dysonian-Lab/icopy-x-ics-decoder\\n- Nikola ICS Decoder (testing pending)\\n\\n## Testing\\n\\nTested on iCopy-XS with:\\n- 48-bit SEOS cards -\u003e iClass Legacy write/verify\\n- 26-bit SEOS cards -\u003e T5577 write/verify\\n- Navigation and exit (gray screen bug fixed)",
+    "head":  "Dysonian-Lab:main",
+    "base":  "main"
+}
