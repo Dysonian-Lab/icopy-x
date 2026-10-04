@@ -48,18 +48,10 @@ import logging
 # ═════════════════════════════════════════════════════════════════════════
 # Verbose logging to USB partition (PC-accessible at H:\logs\) with local fallback
 # ═════════════════════════════════════════════════════════════════════════
-_LOG_DIR_USB = '/mnt/upan/logs'
-_LOG_DIR_LOCAL = '/home/pi/dump/logs'
-
-# Try USB first, fall back to local
-try:
-    os.makedirs(_LOG_DIR_USB, exist_ok=True)
-    _LOG_DIR = _LOG_DIR_USB
-except Exception:
-    os.makedirs(_LOG_DIR_LOCAL, exist_ok=True)
-    _LOG_DIR = _LOG_DIR_LOCAL
-
+_LOG_DIR = '/mnt/upan/logs'
 _LOG_FILE = os.path.join(_LOG_DIR, 'app.log')
+
+os.makedirs(_LOG_DIR, exist_ok=True)
 
 logging.basicConfig(
     level=logging.DEBUG,
