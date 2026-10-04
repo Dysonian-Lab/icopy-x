@@ -135,8 +135,8 @@ def main():
     try:
         import gadget_linux
         gadget_linux.auto_ms_remount()
-        os.makedirs('/mnt/upan/logs', exist_ok=True)
     except Exception:
+        # Non-fatal — /mnt/upan may already be mounted or not available
         pass
 
     # ── 2. Ensure PM3 binary is executable ─────────────────────────
