@@ -33,14 +33,14 @@ _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 1.2  # USB CDC ACM needs >=1.0s for reliable WHO response
 
 _log_path_used = None
-_log_dir_usb = '/mnt/upan/dump/logs/ics_decoder'  # Same partition as mf1, iclass, t55xx dumps → H:\dump\logs\ics_decoder\
+_log_dir_usb = '/mnt/upan/logs/ics_decoder'  # Same base as dump/ keys/ luascripts/ lualibs/ trace/
 
 
 def _log(msg):
-    """Write timestamped log to numbered file on USB partition (/mnt/upan/dump/logs/ics_decoder/).
+    """Write timestamped log to /mnt/upan/logs/ics_decoder/ (PC-accessible as H:\logs\ics_decoder\).
     
-    This is the SAME physical location as H:\dump\logs\ics_decoder\ in PC mode.
-    All card dumps (mf1, iclass, t55xx, etc.) use /mnt/upan/dump/ - we follow that pattern.
+    This is the SAME base partition as dump/, keys/, luascripts/, lualibs/, trace/.
+    Numbered log files auto-increment.
     """
     global _log_path_used
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -53,8 +53,8 @@ def _log(msg):
     except Exception:
         pass
 
-    # Use USB partition - same as all other dumps (mf1, iclass, t55xx, etc.)
-    # This becomes H:\dump\logs\ics_decoder\ in PC mode
+    # Use USB partition - same base as dump/, keys/, luascripts/, lualibs/, trace/
+    # This becomes H:\logs\ics_decoder\ in PC mode
     if _log_path_used is not None:
         try:
             with open(_log_path_used, 'a', encoding='utf-8') as f:
