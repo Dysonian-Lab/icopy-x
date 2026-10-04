@@ -90,7 +90,7 @@ You need **two** files:
 - `icopy-x-noflash.ipk` — keeps your existing PM3 firmware (use if you already have v4.23346+)
 
 **Installation steps:**
-1. Ensure your iCopy-X is on **factory 1.0.90** or later (update from icopyx.com if needed).
+1. Ensure your iCopy-X is on **stock 1.0.90** or later (update from icopyx.com if needed).
 2. Put the iCopy-X into **PC-Mode**.
 3. **Delete ALL other IPK files** from the device.
 4. Copy the downloaded `.ipk` onto the device.
@@ -158,7 +158,7 @@ The iCopy-X should detect the decoder automatically on boot. You'll see **"ICS D
 
 This means the PM3 client in your IPK doesn't match the firmware on your device's SAMD21.
 
-**Fix:** Flash the **`icopy-x-flash.ipk`** (includes matching PM3 firmware + client). The no-flash IPK ships factory PM3 binaries which may be outdated.
+**Fix:** Flash the **`icopy-x-flash.ipk`** (includes matching PM3 firmware + client). The no-flash IPK keeps your current PM3 firmware; if PM3 is unresponsive, the flash IPK will update it.
 
 ### "Processing..." hangs forever on boot
 
