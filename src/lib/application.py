@@ -235,8 +235,8 @@ def startApp():
 
         from lib.widget import Toast
         from lib import resources
-        _toast = Toast(canvas, duration_ms=0)
-        _toast.show(resources.get_str('processing'), duration_ms=0)
+        _toast = Toast(canvas, duration_ms=60000)
+        _toast.show(resources.get_str('processing'), duration_ms=60000)
 
         def _check():
             try:
@@ -266,7 +266,7 @@ def startApp():
                 if executor is not None:
                     try:
                         ret = executor.startPM3Task(
-                            'hw version', timeout=5000, rework_max=0)
+                            'hw version', timeout=10000, rework_max=2)
                         if ret == 1:
                             output = executor.getPrintContent()
                             if output:

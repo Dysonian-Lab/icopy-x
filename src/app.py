@@ -43,7 +43,35 @@ SAFETY MECHANISMS:
 import os
 import shutil
 import sys
+import logging
 
+# ═════════════════════════════════════════════════════════════════════════
+# Verbose logging to USB partition (PC-accessible at H:\logs\) with local fallback
+# ═════════════════════════════════════════════════════════════════════════
+_LOG_DIR_USB = '/mnt/upan/logs'
+_LOG_DIR_LOCAL = '/home/pi/dump/logs'
+
+# Try USB first, fall back to local
+try:
+    os.makedirs(_LOG_DIR_USB, exist_ok=True)
+    _LOG_DIR = _LOG_DIR_USB
+except Exception:
+    os.makedirs(_LOG_DIR_LOCAL, exist_ok=True)
+    _LOG_DIR = _LOG_DIR_LOCAL
+
+_LOG_FILE = os.path.join(_LOG_DIR, 'app.log')
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler(_LOG_FILE, mode='a', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout),
+    ]
+)
+
+# Immediately log boot start
+logging.getLogger(__name__).info("=== iCopy-X boot started ===")
 
 APP_DIR = '/home/pi/ipk_app_main'
 APP_NEW = '/home/pi/ipk_app_new'

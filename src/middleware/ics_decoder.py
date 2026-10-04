@@ -33,23 +33,28 @@ _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 1.2  # USB CDC ACM needs >=1.0s for reliable WHO response
 
 _log_path_used = None
-_log_dir = '/mnt/upan/dump/ics_decoder'
+_log_dir_usb = '/mnt/upan/dump/logs/ics_decoder'  # Same partition as mf1, iclass, t55xx dumps → H:\dump\logs\ics_decoder\
 
 
 def _log(msg):
-    """Write timestamped log to numbered file in ics_decoder/ folder."""
+    """Write timestamped log to numbered file on USB partition (/mnt/upan/dump/logs/ics_decoder/).
+    
+    This is the SAME physical location as H:\dump\logs\ics_decoder\ in PC mode.
+    All card dumps (mf1, iclass, t55xx, etc.) use /mnt/upan/dump/ - we follow that pattern.
+    """
     global _log_path_used
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
     line = '[{}] {}\n'.format(ts, msg)
 
-    # Always print to stderr
+    # Always print to stderr for serial console visibility
     try:
         sys.stderr.write(line)
         sys.stderr.flush()
     except Exception:
         pass
 
-    # If we have a working path, use it
+    # Use USB partition - same as all other dumps (mf1, iclass, t55xx, etc.)
+    # This becomes H:\dump\logs\ics_decoder\ in PC mode
     if _log_path_used is not None:
         try:
             with open(_log_path_used, 'a', encoding='utf-8') as f:
@@ -60,23 +65,36 @@ def _log(msg):
         except Exception:
             _log_path_used = None
 
-    # Find next available log number in ics_decoder/ folder
     try:
-        os.makedirs(_log_dir, exist_ok=True)
-        existing = [f for f in os.listdir(_log_dir) if f.endswith('.log')]
+        # Ensure partition is mounted (auto_ms_remount runs on boot)
+        if not os.path.ismount('/mnt/upan'):
+            raise Exception('/mnt/upan not mounted - run auto_ms_remount() first')
+        
+        os.makedirs(_log_dir_usb, exist_ok=True)
+        existing = [f for f in os.listdir(_log_dir_usb) if f.endswith('.log')]
         if existing:
             nums = sorted([int(f.split('.')[0]) for f in existing if f.split('.')[0].isdigit()])
             next_num = (nums[-1] + 1) if nums else 1
         else:
             next_num = 1
-        _log_path_used = os.path.join(_log_dir, '{:03d}.log'.format(next_num))
+        _log_path_used = os.path.join(_log_dir_usb, '{:03d}.log'.format(next_num))
         with open(_log_path_used, 'a', encoding='utf-8') as f:
             f.write(line)
             f.flush()
             os.fsync(f.fileno())
+        try:
+            sys.stderr.write('[LOG] Wrote to USB partition: {}\n'.format(_log_path_used))
+            sys.stderr.flush()
+        except Exception:
+            pass
         return
-    except Exception:
-        pass
+    except Exception as e:
+        # Log failure to stderr so we can diagnose
+        try:
+            sys.stderr.write('[LOG] USB log failed: {} (mount={})\n'.format(e, os.path.ismount('/mnt/upan')))
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 def _open_serial(port):
