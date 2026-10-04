@@ -33,7 +33,7 @@ _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 1.2  # USB CDC ACM needs >=1.0s for reliable WHO response
 
 _log_path_used = None
-_log_dir_usb = '/mnt/upan/logs/ics_decoder'  # Same base as dump/ keys/ luascripts/ lualibs/ trace/
+_log_dir_usb = '/mnt/upan/dump/ics_decoder'  # PC-accessible as H:\dump\ics_decoder\
 
 
 def _log(msg):

@@ -46,12 +46,18 @@ import sys
 import logging
 
 # ═════════════════════════════════════════════════════════════════════════
-# Verbose logging to USB partition (PC-accessible at H:\logs\) with local fallback
+# Verbose logging to USB partition (PC-accessible at H:\logs\) — numbered logs
 # ═════════════════════════════════════════════════════════════════════════
 _LOG_DIR = '/mnt/upan/logs'
-_LOG_FILE = os.path.join(_LOG_DIR, 'app.log')
-
 os.makedirs(_LOG_DIR, exist_ok=True)
+
+existing = [f for f in os.listdir(_LOG_DIR) if f.endswith('.log')]
+if existing:
+    nums = sorted([int(f.split('.')[0]) for f in existing if f.split('.')[0].isdigit()])
+    next_num = (nums[-1] + 1) if nums else 1
+else:
+    next_num = 1
+_LOG_FILE = os.path.join(_LOG_DIR, '{:03d}.log'.format(next_num))
 
 logging.basicConfig(
     level=logging.DEBUG,
