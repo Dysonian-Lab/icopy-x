@@ -20,6 +20,8 @@ An Open-Source version of the iCopy-X RFID Cloner device.
  - Plugin architecture - allows for building UI apps that interact with the proxmark or linux sub-system just from JSON. Also allows a "full-screen" mode for running other binaries (ie DOOM)
  - Screen mirroring: Allows the screen to be streamed to a device via USB. Can't be used at the same time as PC-Mode: Disable / Enable in settings.
  - **ICS Decoder Bridge**: Read SEOS SIO credentials via USB decoder, write to iClass Legacy/Picopass or T5577 blanks
+ - Persistent main-menu reordering using M1 to move and place items.
+ - Audio Off now applies to application sound playback.
 
 ---
 
@@ -36,14 +38,14 @@ The ICS Decoder integration bridges an external USB ICS Decoder dongle to the iC
    - Challenge-response mutual authentication
    - EAX/EAX' decryption with diversified KDF key
    - Outputs decrypted PACS payload via serial
-3. iCopy-X middleware parses SIO payload:
-   - Extracts NN padding byte
-   - Applies right bit-shift (>> NN)
-   - Parses Wiegand frame (FC + CN)
-4. User removes source, places legacy blank on PM3 coil
-5. Firmware auto-detects blank type (HF or LF)
-6. Firmware writes credential to blank
-7. Post-write verification confirms data integrity
+3. iCopy-X processes the decoder response:
+   - Validates decoder-reported WIEData directly
+   - For eligible 26-bit SIO#/HEX# data, may extract padding and decode Wiegand fields
+   - Preserves SIO_CONTAINER as raw data without treating it as decoded credentials
+4. Read stops at Credential Result; the user may save or inspect the capture
+5. The user explicitly selects Write Credential and places a compatible target on the PM3 coil
+6. The user confirms Write; the target and source are checked again before writing
+7. The user may select Verify after a successful write
 ```
 
 ## Hardware Requirements
@@ -108,10 +110,9 @@ cn = (shifted_bits >> 1) & 0xFFFF     # Card Number (16 bits)
 
 | Credential Type | Detected Blank | Action |
 |-----------------|----------------|--------|
-| Standard 26-bit (fc > 0, cn > 0) | LF T5577 | Execute `lf hid clone -w H10301 --fc {fc} --cn {cn}` |
-| Standard 26-bit (fc > 0, cn > 0) | HF iClass | Execute `hf iclass wrbl` (Block 7) |
-| Extended/Custom (fc == 0, cn == 0) | LF T5577 | **Blocked** - Shows "Non-26b SIO! HF iClass Blank Required" |
-| Extended/Custom (fc == 0, cn == 0) | HF iClass | Execute `hf iclass wrbl` (Block 7 raw 8-byte copy) |
+| Validated decoder-reported H10301 WIEData with FC/CN | LF T5577 | Write H10301 after explicit confirmation |
+| Valid nonzero decoder-reported legacy BLK7 | HF iClass | Write legacy data after explicit confirmation |
+| Unknown/unsupported source without valid legacy BLK7 | Any | Writing unavailable |
 
 ### Why Non-26-bit Payloads Are Blocked on T5577
 
@@ -120,9 +121,8 @@ Extended/48-bit SEOS payloads (e.g., Block 7: `0000801EC2000A7A`) are structured
 ## State Machine
 
 ```
-READING → (card detected) → WAIT_BLANK → (Write pressed) → WRITING → (done) → RESULT
-                     ↑                                                    │
-                     └──────────────── (Retry) ←─────────────────────────┘
+HOME → READ → CREDENTIAL RESULT → SAVE / VIEW DETAILS / WRITE CREDENTIAL
+WRITE CREDENTIAL → DETECT TARGET → CONFIRM WRITE → RESULT
 ```
 
 ### State Descriptions
@@ -130,23 +130,24 @@ READING → (card detected) → WAIT_BLANK → (Write pressed) → WRITING → (
 | State | Left Button | Right Button | Description |
 |-------|-------------|--------------|-------------|
 | READING | Back | (none) | Polling USB decoder for source SE tag |
-| WAIT_BLANK | Back | Write | Source decoded, detecting target blank |
-| WRITING | (none) | (none) | Write + verify in progress |
-| RESULT | Back | Retry | Show result, can retry or exit |
+| CREDENTIAL RESULT | Back | Select | Save, inspect, or explicitly choose Write Credential |
+| WAIT_BLANK | Back | Write | Detecting a compatible target after Write Credential is selected |
+| WRITING | (none) | (none) | Write in progress |
+| RESULT | Back | Select | Show write result; successful writes may be verified explicitly |
 
 ### Result Screen Messages
 
 | Message | Meaning |
 |---------|---------|
-| Write & Verify OK! | Write succeeded, verification passed |
-| Verify Mismatch! | Write succeeded but readback mismatch |
-| Write Failed! | Write command failed |
-| Non-26b SIO! | Extended format blocked on LF T5577 |
-| No card detected! | No target blank detected |
+| Write OK | Write completed; select Verify to check readback |
+| Verified OK / Verify failed | Result of the explicit readback check |
+| Write failed | Write command failed |
+| Target not supported | Target disappeared, changed family, or is incompatible |
+| Place blank on coil | No target blank detected |
 
 ## Post-Write Verification
 
-After writing, the firmware automatically reads back the target card to confirm data integrity:
+After writing, select Verify on Write Result to read back the target card and check data integrity:
 
 - **HF iClass**: Reads Block 7 with both HID keys, compares to source
 - **LF T5577**: Reads FC/CN, compares to source
@@ -169,7 +170,7 @@ After writing, the firmware automatically reads back the target card to confirm 
 # Installation
 There are **two flavours** to choose from: "No Flash" and "Flash".
 
- - **"No Flash"**: Full open-source system, but leaves your iCopy-X's proxmark module untouched. You can easily move back and forth between the open-source middleware and the stock Lab401 middleware. However, you will be limited to circa ~2022 proxmark client + firmware.
+ - **"No Flash"**: Full open-source system, but leaves your iCopy-X's proxmark module untouched. You can easily move back and forth between factory/vanilla middleware. However, you will be limited to circa ~2022 proxmark client + firmware.
  - **"Flash"**: Full open-source system, running latest iceman firmware + client. You'll be prompted to flash after you install the IPK. Flashing **does not touch the bootloader** - you will NOT brick your device. Likewise, the iCopy-X has protections to recover from a soft-brick.
 
 Installation is simple: 
@@ -218,7 +219,7 @@ python tools/plugin_i18n.py check my_plugin            # verifies coverage and p
 
 When your iCopy-X is in "PC-Mode", you can connect to your iCopy-X's Proxmark module directly from your computer.
 Each release contains multi-platform binaries, compiled to match your device's version:
- - `clients-noflash.zip` : Contains windows, linux and macos clients for the "no flash" version (keeps your current PM3 firmware)
+ - `clients-noflash.zip` : Contains windows, linux and macos clients for the "factory firmware" / "no flash" version
  - `clients-flash.zip` : Contains windows, linux and macos clients for the latest iceman / "flash" version.
 
 ### Using the companion client
@@ -289,11 +290,11 @@ https://github.com/quantum-x from https://www.lab401.com
 ## I flashed my device and I don't like it and I want to go back to vanilla...
 
 ### Via the UI
-Add an original Lab401 PM3 firmware image (found in an original .IPK archive:  `res/firmware/pm3/fullimage.elf`) inside the `res/firmware/pm3` folder of a "flash". Copy to your device, install and flash. Then, install the "noflash.ipk" on your device. __or__
+Add a factory pm3 firmware image (found in an original .IPK archive:  `res/firmware/pm3/fullimage.elf`) inside the `res/firmware/pm3` folder of a "flash". Copy to your device, install and flash. Then, install the "noflash.ipk" on your device. __or__
 
 ### Via SSH
 1) Connect to your device via SSH (You'll need USB-C Ethernet connector/hub): login: root/fa
-2) Transfer the original Lab401 PM3 firmware image (found in an original .IPK archive:  `res/firmware/pm3/fullimage.elf`) to the icopy-x.
+2) Transfer the factory pm3 firmware image (found in an original .IPK archive:  `res/firmware/pm3/fullimage.elf`) to the icopy-x.
 3) `systemctl stop icopy`
 4) `/home/pi/ipk_app_main/pm3/proxmark3 /dev/ttyACM0 --flash --force --image /path/to/fullimage.elf`
 5) Reboot your device, install "noflash.ipk"
@@ -305,7 +306,7 @@ Add an original Lab401 PM3 firmware image (found in an original .IPK archive:  `
 ## Does this solve the "Boot Timeout" problem?
 Not directly. "Boot Timeout" means that the GD32 (Microcontroller, that controls that hardware) hasn't received the signal to handoff the screen to the linux device / UI. There are multiple things that can cause this - but the fasted solution is: reflash the microSD card.
 
-Please see the following page for more information, and original Lab401 images to reflash your microSD!
+Please see the following page for more information, and factory images to reflash your microSD!
 https://lab401.com/blogs/academy/icopy-xs-fixing-the-boot-timeout-problem
 
 Once your device is reflashed and booting, you can apply the Open Source IPKs.
