@@ -22,6 +22,13 @@ import actstack
 from _constants import KEY_UP, KEY_DOWN, KEY_OK, KEY_M1, KEY_M2, KEY_PWR
 
 
+@pytest.fixture(autouse=True)
+def _restore_version_module(monkeypatch):
+    # Helpers below replace/pop this entry; restore the previous module even
+    # when an assertion fails, so later tests do not inherit a fake version.
+    monkeypatch.setitem(sys.modules, 'version', sys.modules.get('version'))
+
+
 # ── helpers ──────────────────────────────────────────────────────────
 
 def _setup():
@@ -101,20 +108,20 @@ class TestAboutVersionInfo:
     def teardown_method(self):
         _teardown()
 
-    def test_displays_version_info(self):
+    def test_displays_version_info(self, activity_workers, monkeypatch):
         """Page 0 displays version info lines with data from version module."""
-        import threading
         mod = _make_version_mod(
             typ='iCopy-X', hw='1.7', hmi='2.3.1',
             os='1.0.90', pm='v4.17511', sn='',
         )
         act = _make_about(version_mod=mod)
-        # Wait for background version fetch thread to complete
-        for t in threading.enumerate():
-            if t.daemon and t.is_alive():
-                t.join(timeout=5)
-        # Simulate Tk after(0, ...) callback
-        act._on_version_loaded()
+        # Run only this activity's worker, then its real UI callback.
+        workers = [worker for worker in activity_workers
+                   if worker._target.__name__ == '_fetch']
+        assert len(workers) == 1
+        monkeypatch.setattr(actstack, '_root', act.getCanvas())
+        workers[0].run()
+        act.getCanvas().advance(0)
         canvas = act.getCanvas()
         texts = canvas.get_all_text()
         all_text = ' '.join(texts)
