@@ -49,6 +49,15 @@ APP_NEW = '/home/pi/ipk_app_new'
 APP_OLD = '/home/pi/ipk_app_old'
 
 
+def _valid_staged_application():
+    """Match app.py's minimum checks before moving the live installation."""
+    for relative in ('app.py', 'main/main.py', 'lib/actmain.py'):
+        path = os.path.join(APP_NEW, relative)
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return False
+    return True
+
+
 def swap_firmware():
     """Swap staged firmware into place if present.
 
@@ -56,6 +65,13 @@ def swap_firmware():
         True if a swap was performed, False if no staged firmware found.
     """
     if not os.path.isdir(APP_NEW):
+        return False
+    try:
+        valid = _valid_staged_application()
+    except OSError:
+        valid = False
+    if not valid:
+        print("[ipk_starter] Incomplete staged application; keeping current")
         return False
 
     print("[ipk_starter] Staged firmware found, swapping...")
@@ -88,8 +104,8 @@ def swap_firmware():
             try:
                 os.rename(APP_OLD, APP_DIR)
                 print("[ipk_starter] Restored backup")
-            except Exception:
-                pass
+            except OSError as error:
+                raise RuntimeError("Application activation rollback failed") from error
         return False
 
     return True
@@ -128,9 +144,12 @@ def main():
 
     # Execute app.py
     try:
+        os.chdir(app_dir)
         with open(app_py, 'r') as f:
             code = f.read()
-        exec(compile(code, app_py, 'exec'))
+        exec(compile(code, app_py, 'exec'), {
+            '__name__': '__main__', '__file__': app_py, '__package__': None,
+        })
     except Exception as e:
         print("[ipk_starter] ERROR: app.py failed: %s" % e)
         sys.exit(1)
