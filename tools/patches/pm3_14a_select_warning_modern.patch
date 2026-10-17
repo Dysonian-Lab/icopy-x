@@ -1,0 +1,28 @@
+Applies to the WaitForIso14aReply client (checked: v4.23346).
+Companion to pm3_14a_select_warning.patch for older client releases.
+Changes only diagnostic severity, preserving RF selection behavior.
+
+diff --git a/client/src/cmdhf14a.c b/client/src/cmdhf14a.c
+--- a/client/src/cmdhf14a.c
++++ b/client/src/cmdhf14a.c
+@@ -270,3 +270,3 @@
+             if (res == PM3_ETIMEOUT) {
+-                PrintAndLogEx(DEBUG, "iso14443a card select timeout");
++                PrintAndLogEx(WARNING, "iso14443a card select timeout");
+                 return PM3_ETIMEOUT;
+@@ -2942,7 +2942,7 @@
+     PacketResponseNG resp;
+     uint8_t sel_2815 = 0;
+     if (WaitForIso14aReply(&resp, 2500, NULL, &sel_2815) == false) {
+-        PrintAndLogEx(DEBUG, "iso14443a card select timeout");
++        PrintAndLogEx(WARNING, "iso14443a card select timeout");
+         DropField();
+         return PM3_ETIMEOUT;
+     }
+@@ -2962,5 +2962,5 @@
+     if (select_status == 0) {
+-        PrintAndLogEx(DEBUG, "iso14443a card select failed");
++        PrintAndLogEx(WARNING, "iso14443a card select failed");
+         // Status 5 avoids the standard ISO14443-4 application probe in hf search.
+         return hf14a_timeslot_select(true, true, true) == PM3_SUCCESS ? 5 : 0;
+     }

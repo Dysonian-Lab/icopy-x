@@ -8431,7 +8431,7 @@ class IClassSEActivity(BaseActivity):
             self._verify_success = None
             self._verify_msg = ''
             self._verify_msg2 = ''
-            self._on_write_done()
+            self._schedule_write_done()
             return
 
         # Stop all polling timers to prevent serial port lock collisions
@@ -8450,7 +8450,7 @@ class IClassSEActivity(BaseActivity):
                 self._verify_success = None
                 self._verify_msg = ''
                 self._verify_msg2 = ''
-                self._on_write_done()
+                self._schedule_write_done()
                 return
 
             fc = source.get('fc', 0)
@@ -8464,7 +8464,7 @@ class IClassSEActivity(BaseActivity):
                     self._verify_success = None
                     self._verify_msg = ''
                     self._verify_msg2 = ''
-                    self._on_write_done()
+                    self._schedule_write_done()
                     return
                 self._write_blocked_reason = None
                 ok = ics_decoder.write_to_t5577(fc, cid)
@@ -8480,16 +8480,25 @@ class IClassSEActivity(BaseActivity):
         self._verify_msg = ''
         self._verify_msg2 = ''
 
-        try:
-            from lib import actstack
-            if actstack._root is not None:
-                actstack._root.after(0, self._on_write_done)
-            else:
-                self._on_write_done()
-        except Exception:
+        self._schedule_write_done()
+
+    def _schedule_write_done(self):
+        """Marshal every completion path to Tk; never redraw a destroyed UI."""
+        from lib import actstack
+        if self._state == self.STATE_DESTROYED:
+            return
+        if actstack._root is None:
             self._on_write_done()
+            return
+        try:
+            actstack._root.after(0, self._on_write_done)
+        except Exception:
+            # A closing Tk root cannot accept UI work from this worker.
+            pass
 
     def _on_write_done(self):
+        if self._state == self.STATE_DESTROYED:
+            return
         self._state = self.STATE_RESULT
         self.setidle()
         self._render_result_state()
@@ -8854,8 +8863,8 @@ class IClassSEActivity(BaseActivity):
         """Background verification task."""
         try:
             import ics_decoder
-            self._target_type = ics_decoder.detect_target()
-            if self._target_type:
+            detected_target = ics_decoder.detect_target()
+            if detected_target and detected_target == self._target_type:
                 success, msg = ics_decoder.verify_target_card(
                     self._target_type, self._source_data)
                 self._verify_success = success
@@ -8873,25 +8882,29 @@ class IClassSEActivity(BaseActivity):
                     self._verify_msg2 = ''
             else:
                 self._verify_success = False
-                self._verify_msg = 'No card on coil'
+                self._verify_msg = ('Target changed' if detected_target
+                                    else 'No card on coil')
                 self._verify_msg2 = ''
         except Exception:
             self._verify_success = False
             self._verify_msg = 'Verify error'
             self._verify_msg2 = ''
 
-        # Schedule UI update on main thread (Tkinter is not thread-safe)
-        try:
-            from lib import actstack
-            if actstack._root is not None:
-                actstack._root.after(0, self._on_verify_done)
-            else:
-                self._on_verify_done()
-        except Exception:
+        from lib import actstack
+        if self._state == self.STATE_DESTROYED:
+            return
+        if actstack._root is None:
             self._on_verify_done()
+        else:
+            try:
+                actstack._root.after(0, self._on_verify_done)
+            except Exception:
+                pass
 
     def _on_verify_done(self):
         """Called on main thread after background verify completes."""
+        if self._state == self.STATE_DESTROYED:
+            return
         self._state = self.STATE_RESULT
         self.setidle()
         self._render_result_state()

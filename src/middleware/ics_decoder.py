@@ -33,6 +33,54 @@ _BAUD_RATE = 115200
 _CMD_WHO = 'Who\r\n'
 _CMD_RD = 'RD\r\n'
 _READLINE_TIMEOUT = 1.2  # USB CDC ACM needs >=1.0s for reliable WHO response
+# src/main/main.py and pm3_flash.py reserve this port for the internal PM3.
+# Sending the accessory handshake to it can disturb the running PM3 client.
+_PM3_PORT = '/dev/ttyACM0'
+_ICLASS_KEYS = ('AFA785A7DAB33378', '2020666666668888')
+_ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+_PM3_FAILURE = re.compile(
+    r'\b(?:error|failed|fail|timeout|timed out|usage|unknown command|'
+    r'no (?:\w+ )*(?:found|detected)|not (?:found|detected))\b', re.IGNORECASE)
+
+
+def _get_executor():
+    """Support both the installed flat layout and source-package imports."""
+    try:
+        import executor
+    except ImportError:
+        from . import executor
+    return executor
+
+
+def _completed_output(executor, command, timeout):
+    """Return output only for a completed task without explicit failure."""
+    if executor.startPM3Task(command, timeout=timeout) != 1:
+        return ''
+    output = _ANSI_ESCAPE.sub('', executor.getPrintContent() or '')
+    return '' if _PM3_FAILURE.search(output) else output
+
+
+def _read_iclass_block(executor, block, key):
+    """Accept one unambiguous eight-byte response for the requested block."""
+    output = _completed_output(
+        executor, 'hf iclass rdbl --blk {} -k {}'.format(block, key), 3000)
+    # Iceman output; factory output is normalized by pm3_compat.
+    pattern = (r'^\s*(?:\[\+\]\s*)?block\s+(\d+)\s*/0x([0-9a-f]+)\s*:\s*'
+               r'((?:[0-9a-f]{2}\s*){8})\s*$')
+    values = set()
+    for match in re.finditer(pattern, output, re.IGNORECASE | re.MULTILINE):
+        if int(match[1]) == block and int(match[2], 16) == block:
+            values.add(re.sub(r'\s+', '', match[3]).upper())
+    return values.pop() if len(values) == 1 else None
+
+
+def _hid_h10301_raw(fc, card_id):
+    """Pack H10301 parity plus HID's bit-37 header and bit-26 sentinel.
+
+    Matches RRG v4.23346 Pack_H10301/add_HID_header; the published
+    FC=118, CN=1603 example is 2006EC0C86 on both PM3 client families.
+    """
+    return (1 << 37) | (1 << 26) | calculate_wiegand26_parity(fc, card_id)
 
 _log_path_used = None
 _log_dir = '/mnt/upan/dump/ics_decoder'
@@ -85,7 +133,8 @@ def _open_serial(port):
     if serial is None:
         return None
     try:
-        ser = serial.Serial(port, _BAUD_RATE, timeout=_READLINE_TIMEOUT)
+        ser = serial.Serial(port, _BAUD_RATE, timeout=_READLINE_TIMEOUT,
+                            write_timeout=_READLINE_TIMEOUT)
         return ser
     except Exception:
         return None
@@ -132,6 +181,9 @@ def detect_decoder():
     _log('DETECT_DECODER candidates={}'.format(candidates))
 
     for port in candidates:
+        if (sys.platform.startswith('linux') and
+                os.path.realpath(port) == os.path.realpath(_PM3_PORT)):
+            continue
         ser = _open_serial(port)
         if ser is None:
             continue
@@ -143,7 +195,7 @@ def detect_decoder():
             ser.write(_CMD_WHO.encode('utf-8'))
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             _log('DETECT_DECODER port={} response={}'.format(port, line))
-            if 'ISE' in line:
+            if line == 'ISE':
                 _log('DETECT_DECODER FOUND {}'.format(port))
                 return ser  # Return OPEN port - do NOT close
         except Exception as e:
@@ -454,115 +506,45 @@ def write_to_card(blk7_hex):
 
     Returns True on success (ret == 0), False otherwise.
     """
-    if iclasswrite is None:
+    if (iclasswrite is None or not isinstance(blk7_hex, str) or
+            not re.fullmatch(r'[0-9A-Fa-f]{16}', blk7_hex) or
+            int(blk7_hex, 16) == 0):
         return False
-
-    # Standard HID iClass keys to try (in order of likelihood)
-    ICLASS_KEYS = [
-        'AFA785A7DAB33378',  # Standard HID iClass key (formatted cards)
-        '2020666666668888',  # Virgin Picopass transport key
-    ]
 
     try:
         se_data = iclasswrite.make_se_data(blk7_hex)
-    except Exception as e:
+    except Exception:
         return False
 
-    for key in ICLASS_KEYS:
+    for key in _ICLASS_KEYS:
         try:
             ret = iclasswrite.writeDataBlocks(17, se_data, key)
             if ret == 0:
                 return True
-        except Exception as e:
+        except Exception:
             continue
 
     return False
 
 
 def detect_target_card():
-    """Detect if a writable iClass card is present on the coil.
-
-    Uses multi-key support to handle both virgin Picopass blanks (transport
-    key) and formatted HID iClass cards (standard HID key).
-
-    Returns True if a card is detected, False otherwise.
-    """
+    """Require an authenticated application-block read; a UID is insufficient."""
     try:
-        import executor
-    except ImportError:
-        try:
-            from . import executor
-        except ImportError:
-            return False
-
-    try:
-        # Standard HID iClass keys to try (in order of likelihood)
-        ICLASS_KEYS = [
-            'AFA785A7DAB33378',  # Standard HID iClass key (formatted cards)
-            '2020666666668888',  # Virgin Picopass transport key
-        ]
-
-        # Try authenticated read with each key on Block 6/7 (application area)
-        for key in ICLASS_KEYS:
-            cmd = 'hf iclass rdbl --blk 06 -k {}'.format(key)
-            ret = executor.startPM3Task(cmd, timeout=3000)
-            output = executor.getPrintContent()
-            # Check for valid block read (must contain 'block' and hex data)
-            if ret != -1 and output and 'block' in output.lower():
-                # Verify we got actual data, not just an error
-                for line in output.splitlines():
-                    if 'block' in line.lower() and ':' in line:
-                        hex_part = line.split(':', 1)[1].strip()
-                        # Must have hex bytes like '00 00 80 1E C2 00 0A 7A'
-                        if len(hex_part.replace(' ', '')) >= 16:
-                            return True
-
-        # Fallback: try Block 0 with each key
-        for key in ICLASS_KEYS:
-            cmd = 'hf iclass rdbl --blk 00 -k {}'.format(key)
-            ret = executor.startPM3Task(cmd, timeout=3000)
-            output = executor.getPrintContent()
-            if ret != -1 and output and 'block' in output.lower():
-                for line in output.splitlines():
-                    if 'block' in line.lower() and ':' in line:
-                        hex_part = line.split(':', 1)[1].strip()
-                        if len(hex_part.replace(' ', '')) >= 16:
-                            return True
-
-        return False
+        executor = _get_executor()
+        return any(_read_iclass_block(executor, 6, key) is not None
+                   for key in _ICLASS_KEYS)
     except Exception:
         return False
 
 
 def detect_t5577():
-    """Detect if a T5577 blank is present on the LF coil.
-
-    Uses lf t55xx detect to check for T5577 card presence.
-    Returns True if T5577 detected, False otherwise.
-    """
+    """Detect a T55x7 using positive evidence, never a 'not found' message."""
     try:
-        import executor
-    except ImportError:
-        try:
-            from . import executor
-        except ImportError:
-            return False
-
-    try:
-        cmd = 'lf t55xx detect'
-        ret = executor.startPM3Task(cmd, timeout=5000)
-        if ret == -1:
-            return False
-        output = executor.getPrintContent()
-        if not output:
-            return False
-        # Accept valid PM3 indicators for T5577 (output varies by firmware)
-        out_lower = output.lower()
-        is_t5577 = (
-            ("t55x7" in out_lower or "t5577" in out_lower or "t55xx" in out_lower) and
-            ("found" in out_lower or "chip type" in out_lower or "detected" in out_lower or "raw:" in out_lower)
-        )
-        return is_t5577
+        executor = _get_executor()
+        output = _completed_output(executor, 'lf t55xx detect', 5000)
+        return bool(re.search(
+            r'(?:Chip type[ .:]+T55(?:x7|77)\b|\bValid T55(?:xx|x7|77) chip found\b)',
+            output, re.IGNORECASE))
     except Exception:
         return False
 
@@ -583,62 +565,32 @@ def detect_target():
 
 
 def write_to_t5577(fc, card_id):
-    """Write HID Prox credential to T5577 blank.
+    """Write H10301 using the raw HID command supported by both PM3 families.
 
-    Uses lf hid clone -w H10301 to let Proxmark3 handle H10301 framing
-    natively with correct parity bit calculation.
-
-    STRICT: Only writes verified 26-bit H10301 frames. Returns False for
-    non-26-bit formats (fc=0, cn=0) — extended/48-bit SEOS payloads are
-    structured for 13.56 MHz HF memory and will produce unreadable 125 kHz
-    LF cards if written to T5577.
-
-    Args:
-        fc: Facility Code (int, 0-255)
-        card_id: Card ID/Number (int, 0-65535)
-
-    Returns:
-        True on success, False on failure or non-26-bit format
+    'Done' confirms command completion, not RF readback. Verify separately.
     """
+    if not is_valid_26bit(fc, card_id):
+        return False
     try:
-        import executor
-    except ImportError:
-        try:
-            from . import executor
-        except ImportError:
-            return False
-
-    try:
-        if int(fc) == 0 and int(card_id) == 0:
-            return False
-        cmd = 'lf hid clone -w H10301 --fc {} --cn {}'.format(int(fc), int(card_id))
-        ret = executor.startPM3Task(cmd, timeout=5000)
-        # Accept 0 or 1 as success (command completed), only flag failure on -1 or error
-        write_success = ret in (0, 1)
-        if write_success:
-            # Double-check output for error messages
-            output = executor.getPrintContent()
-            if output and "error" in output.lower():
-                write_success = False
-        return write_success
+        executor = _get_executor()
+        raw = _hid_h10301_raw(int(fc), int(card_id))
+        command = 'lf hid clone -r {:010X}'.format(raw)
+        output = _completed_output(executor, command, 5000)
+        return bool(re.search(r'^\s*(?:\[\+\]\s*)?Done!?\s*$', output, re.MULTILINE))
     except Exception:
         return False
 
 
 def is_valid_26bit(fc, cn):
-    """Check if extracted FC/CN represent a valid 26-bit Wiegand frame.
-
-    Args:
-        fc: Facility Code
-        cn: Card Number
-
-    Returns:
-        True if valid 26-bit format (fc > 0 or cn > 0)
-    """
+    """Validate integer H10301 fields without truncating floats or wrapping."""
+    for value in (fc, cn):
+        if type(value) is not int and not (
+                isinstance(value, str) and re.fullmatch(r'[0-9]+', value)):
+            return False
     try:
         fc, cn = int(fc), int(cn)
         return 0 <= fc <= 255 and 0 <= cn <= 65535 and (fc != 0 or cn != 0)
-    except (TypeError, ValueError):
+    except ValueError:
         return False
 
 
@@ -670,117 +622,40 @@ def calculate_wiegand26_parity(fc: int, cn: int) -> int:
 
 
 def verify_target_card(target_type, source_data):
-    """
-    Performs hardware readback and reverse verification against original source_data.
-    Returns: (success: bool, message: str)
-    """
-    if not source_data:
-        return (False, "No source data")
-
-    expected_fc = int(source_data.get('fc', 0))
-    expected_cn = int(source_data.get('id', 0))
-    expected_blk7 = source_data.get('raw_block7', source_data.get('blk7', '')).replace(" ", "").lower()
-    is_26bit = source_data.get('is_26bit', False) or (expected_fc > 0 and expected_cn > 0)
-
+    """Require successful fresh readback of the exact data that was written."""
+    if not isinstance(source_data, dict) or not source_data:
+        return False, "No source data"
     try:
-        import executor
-    except ImportError:
-        try:
-            from . import executor
-        except ImportError:
-            return (False, "No executor")
+        executor = _get_executor()
+        if target_type == 'hf_iclass':
+            expected = source_data.get('raw_block7', source_data.get('blk7', ''))
+            if not isinstance(expected, str):
+                return False, "Invalid source block"
+            expected = expected.replace(' ', '').upper()
+            if not re.fullmatch(r'[0-9A-F]{16}', expected):
+                return False, "Invalid source block"
+            for key in _ICLASS_KEYS:
+                actual = _read_iclass_block(executor, 7, key)
+                if actual is not None:
+                    # Do not accept a partial FC/CN match when other bits differ.
+                    return actual == expected, ("Block 7 verified" if actual == expected
+                                                else "Block 7 mismatch")
+            return False, "Auth/read failed"
 
-    # -------------------------------------------------------------
-    # 1. HF iClass / Picopass Verification
-    # -------------------------------------------------------------
-    if target_type == 'hf_iclass':
-        read_hex = None
-        used_key = None
-        for key in ["AFA785A7DAB33378", "2020666666668888"]:
-            cmd = 'hf iclass rdbl --blk 7 -k {}'.format(key)
-            ret = executor.startPM3Task(cmd, timeout=3000)
-            output = executor.getPrintContent()
-            if output:
-                for line in output.splitlines():
-                    if "block" in line.lower() and ":" in line:
-                        raw_bytes = line.split(":", 1)[1].strip()
-                        cleaned = raw_bytes.replace(" ", "").replace("\t", "").strip().lower()
-                        if len(cleaned) == 16:
-                            read_hex = cleaned
-                            used_key = key
-                            break
-            if read_hex:
-                break
-
-        if not read_hex:
-            return (False, "Auth failed")
-
-        # Normalize both strings for comparison
-        clean_read = read_hex.strip().replace(" ", "").lower()
-        clean_exp = expected_blk7.strip().replace(" ", "").lower()
-
-        # Direct raw match takes precedence
-        if clean_read == clean_exp and len(clean_read) == 16:
-            if is_26bit and expected_fc > 0:
-                return (True, "Verified FC:{} CN:{}".format(expected_fc, expected_cn))
-            else:
-                return (True, "Blk7: {}".format(clean_read.upper()))
-
-        # Only execute 26-bit bit-shift validation if raw equality fails
-        if is_26bit:
-            try:
-                raw_int = int(clean_read, 16)
-                read_fc = (raw_int >> 17) & 0xFF
-                read_cn = (raw_int >> 1) & 0xFFFF
-                if read_fc == expected_fc and read_cn == expected_cn:
-                    return (True, "Verified FC:{} CN:{}".format(read_fc, read_cn))
-                else:
-                    # Shortened messages for 240px display
-                    return (False, "R:FC:{} CN:{} != E:FC:{} CN:{}".format(
-                        read_fc, read_cn, expected_fc, expected_cn))
-            except Exception:
-                pass
-
-        return (False, "R:{} != E:{}".format(clean_read.upper()[:8], clean_exp.upper()[:8]))
-
-    # -------------------------------------------------------------
-    # 2. LF T5577 Verification
-    # -------------------------------------------------------------
-    elif target_type == 'lf_t5577':
-        if not is_26bit:
-            return (False, "LF invalid for non-26b")
-
-        cmd = 'lf hid reader'
-        ret = executor.startPM3Task(cmd, timeout=5000)
-        if ret == -1:
-            return (False, "No LF signal")
-
-        output = executor.getPrintContent()
-        if not output:
-            return (False, "No LF signal")
-
-        read_fc = None
-        read_cn = None
-        # Specifically target the H10301 line with valid parity
-        for line in output.splitlines():
-            line_lower = line.lower()
-            if "h10301" in line_lower and "fc:" in line_lower and "cn:" in line_lower:
-                import re
-                fc_match = re.search(r'FC:\s*(\d+)', line, re.IGNORECASE)
-                cn_match = re.search(r'CN:\s*(\d+)', line, re.IGNORECASE)
-                if fc_match and cn_match:
-                    read_fc = int(fc_match.group(1))
-                    read_cn = int(cn_match.group(1))
-                    break  # Found the correct line, stop searching
-
-        if read_fc is None or read_cn is None:
-            return (False, "Failed to parse LF")
-
-        if read_fc == expected_fc and read_cn == expected_cn:
-            reconstructed_w26 = calculate_wiegand26_parity(read_fc, read_cn)
-            return (True, "FC:{} CN:{}".format(read_fc, read_cn))
-
-        return (False, "R:FC:{} CN:{} != E:FC:{} CN:{}".format(
-            read_fc, read_cn, expected_fc, expected_cn))
-
-    return (False, "Unknown target")
+        if target_type == 'lf_t5577':
+            fc, cn = source_data.get('fc'), source_data.get('id')
+            if not is_valid_26bit(fc, cn):
+                return False, "LF invalid for non-26b"
+            output = _completed_output(executor, 'lf hid reader', 5000)
+            # Iceman prints raw; pm3_compat also supplies it for factory reads.
+            # Accept the original factory HID line for direct/test callers.
+            values = {int(value, 16) for value in re.findall(
+                r'(?:\braw:\s*|\bHID Prox\s*-\s*)([0-9a-f]+)\b',
+                output, re.IGNORECASE)}
+            expected = _hid_h10301_raw(int(fc), int(cn))
+            if values == {expected}:
+                return True, "FC:{} CN:{}".format(fc, cn)
+            return False, "LF readback mismatch"
+        return False, "Unknown target"
+    except Exception:
+        return False, "Readback failed"

@@ -24,8 +24,7 @@
 
 """iCopy-X application entry point.
 
-Verbatim reproduction of the original app.py from v1.0.90 firmware.
-Source: docs/ORIGINAL_ANALYSIS.md Section 2 (Boot Sequence).
+Application launcher with the staged-update fallback introduced in PR #14.
 
 Boot chain:
     ipk_starter.py -> app.py -> main.main() -> application.startApp()
@@ -34,11 +33,10 @@ On each boot, this script checks for a staged firmware update in
     /home/pi/ipk_app_new. If present, it swaps it into /home/pi/ipk_app_main
     (the live application directory), then launches the app.
 
-SAFETY MECHANISMS:
-    1. Pre-swap validation: verifies required files exist and are non-zero
-    2. Try/except with automatic rollback: if ANY step fails, restores backup
-    3. os.execv() for clean restart after swap (no self-modification)
-    4. Cleanup on success only: ipk_app_old preserved until new version runs
+Staged files are checked before activation and a failed rename or exec
+attempt restores the previous application when possible. The backup is
+retained after exec; this is not a boot-health or power-loss recovery system.
+USB accessory discovery belongs to ics_decoder, not this installation step.
 """
 import os
 import shutil
@@ -82,9 +80,9 @@ def swap_firmware():
         3. Move ipk_app_new to ipk_app_main
         4. Restart via os.execv() (clean process replacement)
 
-    AUTOMATIC ROLLBACK:
-        If ANY step fails, the backup is automatically restored.
-        The function returns False on failure so the current firmware runs.
+    Rollback covers activation and exec failures, not failures after the
+    new interpreter starts. A failed rollback raises rather than continuing
+    with an inconsistent installation.
 
     Returns:
         False if no staged firmware found or swap failed (normal boot).
@@ -96,7 +94,10 @@ def swap_firmware():
     print("[app] Staged firmware found, validating...")
 
     # Step 1: Pre-swap validation
-    is_valid, error_msg = _validate_staged_firmware()
+    try:
+        is_valid, error_msg = _validate_staged_firmware()
+    except OSError as error:
+        is_valid, error_msg = False, str(error)
     if not is_valid:
         print("[app] Validation FAILED: %s" % error_msg)
         print("[app] Aborting swap, using current firmware")
@@ -115,6 +116,7 @@ def swap_firmware():
     # The entire backup-activate sequence is wrapped so ANY exception
     # triggers automatic restoration of the backup
     backup_created = False
+    original_cwd = os.getcwd()
 
     try:
         # Backup current firmware
@@ -138,7 +140,7 @@ def swap_firmware():
                 print("[app] ROLLBACK SUCCESSFUL: restored current firmware")
             except Exception as rollback_error:
                 print("[app] ROLLBACK FAILED: %s" % rollback_error)
-                print("[app] MANUAL RECOVERY REQUIRED")
+                raise RuntimeError("Application activation rollback failed") from rollback_error
         else:
             print("[app] No backup to restore or directory unchanged")
 
@@ -148,17 +150,32 @@ def swap_firmware():
     # This replaces the current process cleanly, avoiding self-modification
     new_app = os.path.join(APP_DIR, 'app.py')
     print("[app] Restarting from %s" % new_app)
-    os.execv(sys.executable, [sys.executable, new_app])
+    try:
+        # rename() preserves a process's working-directory inode on Linux.
+        # Explicitly enter the new tree before app.py resolves main/lib.
+        os.chdir(APP_DIR)
+        os.execv(sys.executable, [sys.executable, new_app])
+    except OSError as error:
+        print("[app] Restart FAILED: %s" % error)
+        try:
+            # Leave the failed update staged for diagnosis; never delete it.
+            # Move out of APP_DIR first (also required for Windows tests).
+            os.chdir(os.path.dirname(APP_DIR))
+            os.rename(APP_DIR, APP_NEW)
+            if backup_created:
+                os.rename(APP_OLD, APP_DIR)
+            os.chdir(original_cwd)
+        except OSError as rollback_error:
+            raise RuntimeError("Application restart rollback failed") from rollback_error
+        if not backup_created:
+            raise RuntimeError("Application restart failed; no previous application") from error
+        return False
 
 
 if __name__ == '__main__':
     # Swap staged firmware if present before launching app
-    swapped = swap_firmware()
-    if swapped:
-        # This line is never reached because os.execv() replaces the process
-        print("[app] Firmware swap complete")
-    else:
-        print("[app] No staged firmware, using current")
+    swap_firmware()
+    print("[app] Launching current application")
 
     sys.path.append("main")
     sys.path.append("lib")
