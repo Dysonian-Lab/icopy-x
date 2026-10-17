@@ -228,6 +228,23 @@ class TestToastIcons:
 
 class TestToastOverlayPreservation:
 
+    @pytest.mark.parametrize('duration', [0, 1000])
+    def test_cancel_removes_owned_timers_only(self, canvas, toast, duration):
+        toast.show('Message', duration_ms=duration)
+        canvas.advance(50)  # Include the rescheduled overlay-raise timer.
+        unrelated = canvas.after(100, lambda: None)
+        toast.cancel()
+        toast.cancel()
+        assert set(canvas._timers) == {unrelated}
+
+    def test_replacing_toast_does_not_accumulate_raise_timers(self, canvas, toast):
+        toast.show('First', duration_ms=0)
+        toast.show('Second', duration_ms=0)
+        assert len(canvas._timers) == 1
+        canvas.advance(100)
+        assert len(canvas._timers) == 1
+        assert 'Second' in _get_texts(canvas)
+
     def test_overlay_preserves_existing_content(self, canvas, toast):
         """Toast overlay does NOT remove pre-existing canvas items."""
         # Add some existing content

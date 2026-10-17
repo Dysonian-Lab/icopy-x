@@ -27,6 +27,52 @@ from lib._constants import (
 from tests.ui.conftest import MockCanvas
 
 
+def test_dispose_cancels_only_this_bars_animation_and_completion():
+    canvas = MockCanvas()
+    bar = ProgressBar(canvas)
+    bar.show()
+    bar.setProgress(50)
+    bar.setProgress(75)  # Superseded animation must also be cancelled.
+    completed = []
+    bar.complete(lambda: completed.append(True))
+    unrelated = []
+    other_timer = canvas.after(50, lambda: unrelated.append(True))
+    bar.dispose()
+    bar.dispose()  # Teardown may run after an earlier cancellation.
+    assert set(canvas._timers) == {other_timer}
+    canvas.advance(250)
+    assert completed == []
+    assert unrelated == [True]
+    assert canvas.snapshot()['items'] == {}
+
+
+def test_hide_preserves_completion_callback():
+    canvas = MockCanvas()
+    bar = ProgressBar(canvas)
+    bar.show()
+    completed = []
+    bar.complete(lambda: completed.append(True))
+    bar.hide()  # Temporary console hiding is not disposal.
+    canvas.advance(250)
+    assert completed == [True]
+
+
+def test_completion_can_dispose_its_own_bar():
+    canvas = MockCanvas()
+    bar = ProgressBar(canvas)
+    bar.show()
+    completed = []
+
+    def complete():
+        bar.dispose()
+        completed.append(True)
+
+    bar.complete(complete)
+    canvas.advance(250)
+    assert completed == [True]
+    assert canvas._timers == {}
+
+
 # -----------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------

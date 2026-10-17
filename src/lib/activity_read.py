@@ -46,6 +46,8 @@ Key architecture finding from trace_read_flow_20260401.txt:
 Import convention: ``from lib.activity_read import ReadActivity``
 """
 
+from functools import partial
+
 from lib.actbase import BaseActivity
 from lib.widget import Toast, ProgressBar
 from lib import actstack, resources
@@ -187,6 +189,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         self._tag_name = None
         self._scan_cache = None
         self._scanner = None
+        self._scan_token = None
         self._reader = None
         self._toast = None
         self._progress = None
@@ -276,6 +279,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
     def onDestroy(self):
         self._cancelScan()
         self._cancelRead()
+        self._clearContent()
 
     def onKeyEvent(self, key):
         """State-dependent key routing.
@@ -298,6 +302,9 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         # PWR: always works, even during scanning/reading.
         # Must abort any in-flight PM3 command before finishing.
         if key == KEY_PWR:
+            # Invalidate callbacks before aborting PM3: abort can release an
+            # in-flight scan command and cause its final callbacks to arrive.
+            self._cancelScan()
             # Dismiss toast if showing (but don't swallow the key)
             for attr in ('_toast',):
                 toast = getattr(self, attr, None)
@@ -379,6 +386,8 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         Ground truth: scan flow post-mortem section 3.1.
         Screenshot: read_tag_scanning_1-3.png.
         """
+        self._cancelScan()
+        scan_token = self._scan_token = object()
         self._state = 'scanning'
         self.setbusy()
         self._scan_cache = None
@@ -398,9 +407,9 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         try:
             import scan as _scan_mod
             self._scanner = _scan_mod.Scanner()
-            self._scanner.call_progress = self.onScanning
-            self._scanner.call_resulted = self.onScanFinish
-            self._scanner.call_exception = self.onScanFinish
+            self._scanner.call_progress = partial(self.onScanning, scan_token=scan_token)
+            self._scanner.call_resulted = partial(self.onScanFinish, scan_token=scan_token)
+            self._scanner.call_exception = partial(self.onScanFinish, scan_token=scan_token)
             # Ground truth: activity_main.so strings show ReadListActivity.how2Scan
             # calls scanner.scan_type_asynchronous(tag_type), NOT scan_all.
             # Original PM3 traces confirm type-specific scanning:
@@ -430,24 +439,55 @@ class ReadActivity(ConsoleMixin, BaseActivity):
             _tb.print_exc()
 
     def _cancelScan(self):
+        # scan_stop is cooperative and may still deliver a final callback.
+        # Invalidate this scan before calling it, even if stopping raises.
+        self._scan_token = None
+        scanner, self._scanner = self._scanner, None
         self.setidle()
-        if self._scanner is not None:
+        if scanner is not None:
             try:
-                self._scanner.stop()
+                scanner.scan_stop()
             except Exception:
                 pass
-            self._scanner = None
+        if self._state == 'scanning' and self._progress is not None:
+            self._progress.dispose()
+            self._progress = None
 
-    def onScanning(self, progress):
-        """Callback from scan.so — progress bar update."""
-        if isinstance(progress, (list, tuple)) and len(progress) >= 2:
-            pct = int(progress[0] * 100 / max(progress[1], 1))
+    def _isCurrentScan(self, scan_token):
+        return (scan_token is not None and scan_token is self._scan_token
+                and self._state == 'scanning' and not self.life.destroyed)
+
+    def _dispatchScanCallback(self, scan_token, callback, *args):
+        """Serialize scan UI work with key handling; recheck after queueing."""
+        if not self._isCurrentScan(scan_token):
+            return
+
+        def _deliver():
+            if self._isCurrentScan(scan_token):
+                callback(*args)
+
+        if actstack._root is not None:
+            actstack._root.after(0, _deliver)
         else:
-            pct = int(progress) if progress else 0
-        if self._progress is not None:
-            self._progress.setProgress(pct)
+            _deliver()
 
-    def onScanFinish(self, result):
+    def onScanning(self, progress, scan_token=None):
+        """Callback from scan.so — progress bar update on the Tk thread."""
+        scan_token = self._scan_token if scan_token is None else scan_token
+
+        def _update():
+            if self._scanner is None:  # Final result already accepted.
+                return
+            if isinstance(progress, (list, tuple)) and len(progress) >= 2:
+                pct = int(progress[0] * 100 / max(progress[1], 1))
+            else:
+                pct = int(progress) if progress else 0
+            if self._progress is not None:
+                self._progress.setProgress(pct)
+
+        self._dispatchScanCallback(scan_token, _update)
+
+    def onScanFinish(self, result, scan_token=None):
         """Callback from scan.so — scan complete.
 
         Ground truth: trace_read_flow_20260401.txt lines 3-6 —
@@ -456,14 +496,33 @@ class ReadActivity(ConsoleMixin, BaseActivity):
 
         ProgressBar completes to 100% before transitioning.
         """
+        scan_token = self._scan_token if scan_token is None else scan_token
+        self._dispatchScanCallback(scan_token, self._finishScan, result, scan_token)
+
+    def _finishScan(self, result, scan_token):
+        if self._scanner is None:  # Ignore duplicate result/exception callbacks.
+            return
         self._scanner = None
         self.setidle()
 
+        def _no_tag():
+            if self._isCurrentScan(scan_token):
+                self._scan_token = None
+                self._showNoTag()
+
         if result is None or isinstance(result, (str, int)):
             if self._progress is not None:
-                self._progress.complete(self._showNoTag)
+                self._progress.complete(_no_tag)
             else:
-                self._showNoTag()
+                _no_tag()
+            return
+
+        # scan.createTagMulti() sets found=True with CODE_TAG_MULT (-3).
+        # Classify collisions before the single-tag success path; a collision
+        # must never start a read against an unidentified tag.
+        if result.get('return') == -3 or result.get('hasMulti', False):
+            self._scan_token = None
+            self._showNoTag(resources.get_str('tag_multi'))
             return
 
         found = result.get('found', False)
@@ -471,6 +530,9 @@ class ReadActivity(ConsoleMixin, BaseActivity):
             self._scan_cache = result
 
             def _after_complete():
+                if not self._isCurrentScan(scan_token):
+                    return
+                self._scan_token = None
                 self._clearContent()
                 self._showTemplate()
                 self._startRead()
@@ -480,11 +542,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
             else:
                 _after_complete()
         else:
-            has_multi = result.get('hasMulti', False)
-            if has_multi:
-                self._showNoTag(resources.get_str('tag_multi'))
-            else:
-                self._showNoTag()
+            _no_tag()
 
     # ================================================================
     # Read phase
@@ -523,13 +581,15 @@ class ReadActivity(ConsoleMixin, BaseActivity):
 
         self._start_fake_progress(start=50, ceiling=80)
 
-        try:
-            import scan as _scan_mod
-            scan_cache = _scan_mod.getScanCache()
-        except Exception:
-            scan_cache = self._scan_cache
+        # Use the accepted result for this activity. An older Scanner can
+        # still overwrite the global cache after its callbacks are cancelled.
+        scan_cache = self._scan_cache
         if scan_cache is None:
-            scan_cache = self._scan_cache or {}
+            try:
+                import scan as _scan_mod
+                scan_cache = _scan_mod.getScanCache() or {}
+            except Exception:
+                scan_cache = {}
 
         bundle = {'infos': scan_cache, 'force': force}
 
@@ -913,7 +973,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
 
         def _after_complete():
             if self._progress is not None:
-                self._progress.hide()
+                self._progress.dispose()
                 self._progress = None
             canvas = self.getCanvas()
             if canvas is not None:
@@ -942,7 +1002,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
 
         def _after_complete():
             if self._progress is not None:
-                self._progress.hide()
+                self._progress.dispose()
                 self._progress = None
             canvas = self.getCanvas()
             if canvas is not None:
@@ -973,7 +1033,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         self._state = 'warning_keys'
         # Hide reading progress bar before pushing Warning activity
         if self._progress is not None:
-            self._progress.hide()
+            self._progress.dispose()
             self._progress = None
         canvas = self.getCanvas()
         if canvas is not None:
@@ -1055,7 +1115,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         must clear JSON renderer tags + template.so items.
         """
         if self._progress is not None:
-            self._progress.hide()
+            self._progress.dispose()
             self._progress = None
         if self._toast is not None:
             self._toast.cancel()
