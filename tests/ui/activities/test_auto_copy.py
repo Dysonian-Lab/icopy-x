@@ -74,7 +74,7 @@ def test_scan_failure_allows_rescan_but_never_read(read_flow, result, state, mes
     assert activity.btn_enabled
     assert message in activity.getCanvas().get_all_text()
     read_flow.reader.start.assert_not_called()
-    activity.onKeyEvent(key)
+    activity.callKeyEvent(key)
     assert activity.state == 'scanning'
     assert read_flow.scanner.scan_all_asynchronous.call_count == 2
 
@@ -93,10 +93,10 @@ def test_success_hands_exact_bundle_to_warning_then_writer(read_flow, infos, bun
     texts = activity.getCanvas().get_all_text()
     assert 'Reread' in texts and 'Write' in texts
     assert any(('Partial data' if partial else 'File saved') in text for text in texts)
-    activity.onKeyEvent(key)
+    activity.callKeyEvent(key)
     warning = actstack.get_current_activity()
     assert isinstance(warning, WarningWriteActivity)
-    warning.onKeyEvent(KEY_M2)
+    warning.callKeyEvent(KEY_M2)
     writer = actstack.get_current_activity()
     assert isinstance(writer, WriteActivity)
     assert writer._read_bundle == bundle
@@ -111,7 +111,7 @@ def test_failure_displays_result_then_rereads(read_flow, ret_code):
     texts = activity.getCanvas().get_all_text()
     assert 'Read Failed!' in texts
     assert 'Rescan' in texts and 'Reread' in texts
-    activity.onKeyEvent(KEY_M2)
+    activity.callKeyEvent(KEY_M2)
     assert activity.state == 'reading'
     assert read_flow.reader.start.call_count == 2
 
@@ -160,7 +160,7 @@ def test_progress_renders_real_callback_fields(read_flow):
 def test_busy_keys_do_not_start_another_operation(read_flow, phase, key):
     activity = start(read_flow) if phase == 'scanning' else reading(read_flow)
     before = read_flow.reader.start.call_count
-    activity.onKeyEvent(key)
+    activity.callKeyEvent(key)
     assert activity.state == phase
     assert read_flow.reader.start.call_count == before
     read_flow.scanner.scan_all_asynchronous.assert_called_once_with()
@@ -171,7 +171,7 @@ def test_power_exits_including_busy_and_toast_states(read_flow, phase):
     activity = start(read_flow) if phase == 'scanning' else reading(read_flow)
     if phase in ('place_card', 'read_failed'):
         read_flow.read_result(activity, {'success': phase == 'place_card', 'return': -2})
-    activity.onKeyEvent(KEY_PWR)
+    activity.callKeyEvent(KEY_PWR)
     assert actstack.get_current_activity() is None
     read_flow.stop_pm3.assert_called_once_with()
 
@@ -179,7 +179,7 @@ def test_power_exits_including_busy_and_toast_states(read_flow, phase):
 def test_success_reread_keeps_original_scan(read_flow):
     activity = reading(read_flow)
     read_flow.read_result(activity, {'success': True, 'bundle': '/mnt/upan/dump/card.bin'})
-    activity.onKeyEvent(KEY_M1)
+    activity.callKeyEvent(KEY_M1)
     assert activity.state == 'reading'
     assert read_flow.reader.start.call_count == 2
     read_flow.scanner.scan_all_asynchronous.assert_called_once_with()

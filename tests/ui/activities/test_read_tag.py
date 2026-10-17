@@ -80,9 +80,9 @@ def test_unsuccessful_scan_offers_only_rescan(read_flow, result):
     read_flow.reader.start.assert_not_called()
     read_flow.scanner.scan_all_asynchronous.reset_mock()
     for key in (KEY_M1, KEY_OK):
-        activity.onKeyEvent(key)
+        activity.callKeyEvent(key)
         read_flow.scanner.scan_all_asynchronous.assert_not_called()
-    activity.onKeyEvent(KEY_M2)
+    activity.callKeyEvent(KEY_M2)
     read_flow.scanner.scan_all_asynchronous.assert_called_once_with()
     assert activity.state == 'scanning'
 
@@ -101,11 +101,11 @@ def test_success_keeps_write_bundle_and_shows_result(read_flow, infos, bundle, p
     assert 'Read Tag' in texts
     assert 'Reread' in texts and 'Write' in texts
     assert any(('Partial data' if partial else 'File saved') in text for text in texts)
-    activity.onKeyEvent(KEY_M2)
+    activity.callKeyEvent(KEY_M2)
     warning = actstack.get_current_activity()
     assert isinstance(warning, WarningWriteActivity)
     # Confirm through the actual warning screen; the bundle must reach WriteActivity.
-    warning.onKeyEvent(KEY_M2)
+    warning.callKeyEvent(KEY_M2)
     writer = actstack.get_current_activity()
     assert isinstance(writer, WriteActivity)
     assert writer._read_bundle == bundle
@@ -119,9 +119,9 @@ def test_read_failure_never_offers_a_write(read_flow, ret_code):
     assert not activity.isbusy()
     assert 'Read Failed!' in activity.getCanvas().get_all_text()
     for key in (KEY_M2, KEY_OK):
-        activity.onKeyEvent(key)
+        activity.callKeyEvent(key)
         assert actstack.get_current_activity() is activity
-    activity.onKeyEvent(KEY_M1)
+    activity.callKeyEvent(KEY_M1)
     assert activity.state == 'scanning'
 
 
@@ -175,7 +175,7 @@ def test_progress_dict_renders_keys_timer_and_percentage(read_flow):
 def test_busy_keys_cannot_start_another_operation(read_flow, phase, key):
     activity = start(read_flow) if phase == 'scanning' else reading(read_flow)
     before = read_flow.reader.start.call_count
-    activity.onKeyEvent(key)
+    activity.callKeyEvent(key)
     assert activity.state == phase
     assert read_flow.reader.start.call_count == before
     read_flow.scanner.scan_all_asynchronous.assert_called_once_with()
@@ -186,7 +186,7 @@ def test_power_exits_including_busy_and_toast_states(read_flow, phase):
     activity = start(read_flow) if phase == 'scanning' else reading(read_flow)
     if phase in ('read_success', 'read_failed'):
         read_flow.read_result(activity, {'success': phase == 'read_success', 'return': -2})
-    activity.onKeyEvent(KEY_PWR)
+    activity.callKeyEvent(KEY_PWR)
     assert actstack.get_current_activity() is None
     if phase in ('scanning', 'reading'):
         read_flow.stop_pm3.assert_called_once_with()
