@@ -128,13 +128,21 @@ class TestUpdateActivity:
         act = _start(UpdateActivity)
         assert act._upd_state == 'ready'
 
-    def test_start_install(self):
+    def test_start_install(self, activity_workers, monkeypatch):
         from activity_main import UpdateActivity
+        import update
+        from unittest.mock import Mock
+        search = Mock(return_value=None)
+        monkeypatch.setattr(update, 'search', search)
         act = _start(UpdateActivity)
         act.onKeyEvent(KEY_M2)
-        # _startInstall tries import update which fails (no module),
-        # falls through to except -> _onInstallComplete(success=False, code=0x03)
-        # which sets state to 'done'
+        assert act._upd_state == 'searching'
+        workers = [worker for worker in activity_workers
+                   if worker._target.__name__ == '_run']
+        assert len(workers) == 1
+        workers[0].run()
+        act.getCanvas().advance(250)
+        search.assert_called_once_with('/mnt/upan/')
         assert act._upd_state == 'done'
 
     def test_pwr_exits_ready(self):

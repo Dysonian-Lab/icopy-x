@@ -313,36 +313,43 @@ class TestDestroySubprocessUnblocks:
 
         assert rtm._output_event.is_set()
 
-    def test_output_event_unblocks_waiter(self):
-        """_destroy_subprocess unblocks a thread waiting on _output_event."""
+    @pytest.mark.parametrize('group_kill_fails', [False, True])
+    def test_output_event_unblocks_waiter(self, group_kill_fails):
+        """Destroy wakes the waiter and reaps the child, including kill fallback."""
         rtm = self._make_rtm()
         rtm._output_event.clear()
-        rtm._process = MagicMock()
-        rtm._process.pid = 99999
-        # Make killpg succeed silently
-        rtm._process.wait.return_value = 0
-
+        process = rtm._process = MagicMock()
+        process.pid = 99999
+        ready = threading.Event()
         unblocked = threading.Event()
 
         def waiter():
+            ready.set()
             rtm._output_event.wait(timeout=5)
             unblocked.set()
 
-        t = threading.Thread(target=waiter)
-        t.start()
+        thread = threading.Thread(target=waiter)
+        thread.start()
+        try:
+            assert ready.wait(timeout=2)
+            assert not unblocked.is_set()
+            # Both Unix-only APIs are explicit doubles, including on Windows.
+            # Never query or signal an actual host process group.
+            with patch('os.getpgid', return_value=99999, create=True), \
+                 patch('os.killpg', create=True,
+                       side_effect=OSError('group unavailable') if group_kill_fails else None):
+                rtm._destroy_subprocess()
+            assert unblocked.wait(timeout=2)
+            process.wait.assert_called_once_with(timeout=5)
+            if group_kill_fails:
+                process.kill.assert_called_once_with()
+            else:
+                process.kill.assert_not_called()
+            assert rtm._process is None
+        finally:
+            rtm._output_event.set()
+            thread.join(timeout=2)
 
-        # Give the waiter time to block
-        time.sleep(0.1)
-        assert not unblocked.is_set()
-
-        # Destroy should unblock the waiter
-        import os
-        import signal
-        with patch('os.killpg'):
-            rtm._destroy_subprocess()
-
-        assert unblocked.wait(timeout=2), "_output_event.set() didn't unblock waiter"
-        t.join(timeout=2)
 
 
 # =====================================================================

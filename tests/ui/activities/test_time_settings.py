@@ -18,6 +18,7 @@ import sys
 import time
 import types
 import pytest
+from unittest.mock import Mock
 
 from tests.ui.conftest import MockCanvas
 import actstack
@@ -32,10 +33,15 @@ from _constants import (
 # ---------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _setup_actstack():
+def _setup_actstack(monkeypatch):
     """Reset actstack and install MockCanvas factory for each test."""
     actstack._reset()
     actstack._canvas_factory = lambda: MockCanvas()
+    # Clock setting is a device boundary, never an operation on the test host.
+    import os
+    import rtc_sync
+    monkeypatch.setattr(os, 'system', Mock(return_value=0))
+    monkeypatch.setattr(rtc_sync, 'set_rtc', Mock(return_value=True))
     yield
     actstack._reset()
 
@@ -235,8 +241,13 @@ class TestTimeSyncActivity:
         act = _create_time_sync()
         act.onKeyEvent(KEY_M1)  # enter edit
         assert act.get_state() == 'edit'
+        act._values.update(year=2026, month=4, day=15, hour=12, minute=30, second=45)
         act.onKeyEvent(KEY_M2)  # save
         assert act.get_state() == 'display'
+        import os
+        import rtc_sync
+        os.system.assert_called_once_with('date -s "2026-04-15 12:30:45"')
+        rtc_sync.set_rtc.assert_called_once()
 
     def test_save_toast(self):
         """Saving shows toast messages on canvas."""

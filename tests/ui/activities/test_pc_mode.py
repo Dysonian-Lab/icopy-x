@@ -155,19 +155,19 @@ class TestPCModeActivity:
         act.onKeyEvent(KEY_M2)
         # State should be STARTING (background thread launched)
         # or RUNNING (if bg thread completed instantly) or IDLE (if start failed)
-        assert act.get_state() in ('starting', 'running', 'idle')
+        assert act.get_state() == 'starting'
 
     def test_m1_starts_pc_mode(self):
         """M1 in IDLE also starts PC mode (same as M2)."""
         act = _create_pcmode()
         act.onKeyEvent(KEY_M1)
-        assert act.get_state() in ('starting', 'running', 'idle')
+        assert act.get_state() == 'starting'
 
-    def test_ok_starts_pc_mode(self):
-        """OK in IDLE also starts PC mode."""
+    def test_ok_is_unbound_in_idle(self):
+        """PC mode starts from its two Start buttons; OK is unbound."""
         act = _create_pcmode()
         act.onKeyEvent(KEY_OK)
-        assert act.get_state() in ('starting', 'running', 'idle')
+        assert act.get_state() == 'idle'
 
     def test_keys_ignored_in_starting(self):
         """In STARTING state, all keys are ignored."""
@@ -189,7 +189,7 @@ class TestPCModeActivity:
         assert act.get_state() == 'stopping'
 
     def test_button_label_changes_running(self):
-        """In RUNNING state, M1='Stop', M2='Button'."""
+        """In RUNNING state only the Stop button is shown."""
         act = _create_pcmode()
         # Force to RUNNING state and update buttons
         act._state = 'running'
@@ -197,7 +197,8 @@ class TestPCModeActivity:
         canvas = act.getCanvas()
         texts = canvas.get_all_text()
         assert 'Stop' in texts
-        assert 'Button' in texts
+        assert texts.count('Stop') == 1
+        assert 'Button' not in texts
 
     def test_running_m1_triggers_stop(self):
         """M1 in RUNNING state triggers stop sequence."""
@@ -222,13 +223,13 @@ class TestPCModeActivity:
         assert act.get_state() in ('stopping',)
 
     def test_show_running_toast(self):
-        """showRunningToast displays 'PC-mode Running...'."""
+        """showRunningToast displays 'PC-Mode Running...'."""
         act = _create_pcmode()
         act.showRunningToast()
         # Toast should be shown on canvas
         canvas = act.getCanvas()
         texts = canvas.get_all_text()
-        assert 'PC-mode Running...' in texts
+        assert 'PC-Mode Running...' in texts
 
     def test_up_down_ignored_in_idle(self):
         """UP/DOWN keys have no effect in IDLE (no list)."""

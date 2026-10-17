@@ -1,7 +1,7 @@
 """Tests for SimulationActivity and SimulationTraceActivity.
 
 Ground truth (FB captures simulation_20260403 + trace_scan_flow_20260331.txt):
-    - 16 tag types across 4 pages, numbered "1. M1 S50 1k" through "16. Nedap ID"
+    - Current catalog: 19 entries, including the project's LF additions
     - Title list view: "Simulation X/4" (page indicator)
     - Title sim UI: "Simulation" (no page indicator)
     - List view: M1="" (empty), M2="" (empty)
@@ -52,10 +52,12 @@ class TestSimulationActivity:
         texts = act.getCanvas().get_all_text()
         assert any('1/' in t for t in texts)
 
-    def test_type_list_has_16_entries(self):
-        """SIM_MAP must contain 16 entries."""
+    def test_type_list_has_19_entries(self):
+        """SIM_MAP retains the current 19 supported simulation entries."""
         from activity_main import SIM_MAP
-        assert len(SIM_MAP) == 16
+        assert len(SIM_MAP) == 19
+        names = [entry[0] for entry in SIM_MAP]
+        assert all(name in names for name in ('PAC/Stanley ID', 'Nedap ID', 'Noralsy ID'))
 
     def test_type_list_first_item(self):
         """First item must be 'M1 S50 1k' (QEMU-verified)."""
@@ -63,9 +65,9 @@ class TestSimulationActivity:
         assert SIM_MAP[0][0] == 'M1 S50 1k'
 
     def test_type_list_last_item(self):
-        """Last item must be 'FDX-B Data'."""
+        """Noralsy is the final appended simulation entry."""
         from activity_main import SIM_MAP
-        assert SIM_MAP[-1][0] == 'FDX-B Data'
+        assert SIM_MAP[-1][0] == 'Noralsy ID'
 
     def test_initial_state_is_list(self):
         """Activity starts in list_view state."""

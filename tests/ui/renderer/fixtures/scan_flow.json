@@ -1,0 +1,25 @@
+{
+  "initial_state": "scanning",
+  "states": {
+    "scanning": {
+      "screen": {"title": "Scan Tag", "keys": {}},
+      "on_enter": "run:scan.scan_all_synchronous",
+      "transitions": {
+        "on_result.found==true": "found",
+        "on_result.found==false": "not_found"
+      }
+    },
+    "found": {
+      "screen": {
+        "content": {"type": "template"},
+        "keys": {"M1": "set_state:scanning", "M2": "push:simulation_with_tag"}
+      }
+    },
+    "not_found": {
+      "screen": {"keys": {"M1": "set_state:scanning", "M2": "set_state:scanning"}}
+    },
+    "multi_tags": {
+      "screen": {"keys": {"M1": "set_state:scanning", "M2": "noop"}}
+    }
+  }
+}

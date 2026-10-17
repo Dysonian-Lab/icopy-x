@@ -1,6 +1,9 @@
 """UI test conftest — MockCanvas and shared fixtures."""
 
 import copy
+import os
+import subprocess
+import threading
 import unittest.mock as _mock
 import pytest
 
@@ -32,6 +35,8 @@ class MockCanvas:
         self._bg = bg
         self._timers = {}       # timer_id_str -> (ms, func, args)
         self._next_timer = 1
+        self._now_ms = 0
+        self._deadlines = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -287,11 +292,13 @@ class MockCanvas:
         timer_id = f"after#{self._next_timer}"
         self._next_timer += 1
         self._timers[timer_id] = (ms, func, args)
+        self._deadlines[timer_id] = self._now_ms + ms
         return timer_id
 
     def after_cancel(self, timer_id):
         """Cancel a previously scheduled callback."""
         self._timers.pop(timer_id, None)
+        self._deadlines.pop(timer_id, None)
 
     # ------------------------------------------------------------------
     # Test-only helpers (NOT part of tkinter API)
@@ -329,6 +336,7 @@ class MockCanvas:
     def fire_after(self, timer_id):
         """Execute and remove a stored ``after`` callback (test helper)."""
         entry = self._timers.pop(timer_id, None)
+        self._deadlines.pop(timer_id, None)
         if entry is None:
             return
         _ms, func, args = entry
@@ -339,6 +347,24 @@ class MockCanvas:
         """Execute and remove ALL stored ``after`` callbacks (test helper)."""
         for timer_id in list(self._timers):
             self.fire_after(timer_id)
+
+    def advance(self, milliseconds):
+        """Run callbacks due within virtual time, including newly queued work.
+
+        Unlike fire_all_after(), this preserves delay ordering. The bound
+        catches accidental zero-delay loops without running real-time sleeps.
+        """
+        end = self._now_ms + milliseconds
+        for _ in range(1000):
+            due = [key for key in self._timers
+                   if self._deadlines[key] <= end]
+            if not due:
+                self._now_ms = end
+                return
+            key = min(due, key=lambda key: self._deadlines[key])
+            self._now_ms = self._deadlines[key]
+            self.fire_after(key)
+        raise AssertionError('MockCanvas callback limit exceeded')
 
 
 # ------------------------------------------------------------------
@@ -384,203 +410,39 @@ def _mock_tk_font():
         yield
 
 
-# =====================================================================
-# API compatibility adapters
-# =====================================================================
-# Tests were written against the original .so API names.  The OSS
-# reimplementation uses different names.  Bridge them here so that
-# every test file picks up the correct attribute/method names without
-# per-file changes.
+@pytest.fixture
+def activity_workers(monkeypatch):
+    """Queue activity workers so tests control completion instead of racing I/O.
 
-def _install_api_adapters():
-    """Monkey-patch activity classes with .so-era names."""
+    A test that needs a worker's result must supply its device doubles and
+    explicitly call that worker's run(). No activity state logic is replaced.
+    """
+    workers = []
 
-    # ------ ReadActivity ------
-    from activity_read import ReadActivity as _RA
+    class DeferredThread(threading.Thread):
+        def start(self):
+            self.pending = True
+            workers.append(self)
 
-    _RA._onScanResult = _RA.onScanFinish
+        def is_alive(self):
+            return getattr(self, 'pending', False)
 
-    # State constants (ReadActivity uses bare strings, no class constants)
-    _RA.STATE_IDLE = 'idle'
-    _RA.STATE_SCANNING = 'scanning'
-    _RA.STATE_SCAN_FOUND = 'scan_found'
-    _RA.STATE_READING = 'reading'
-    _RA.STATE_READ_SUCCESS = 'read_success'
-    _RA.STATE_READ_PARTIAL = 'read_partial'
-    _RA.STATE_READ_FAILED = 'read_failed'
-    _RA.STATE_ERROR = 'read_failed'
-    _RA.STATE_WARNING_KEYS = 'warning_keys'
-    _RA.STATE_NO_TAG = 'no_tag'
-    _RA.STATE_WRONG_TYPE = 'wrong_type'
+        def join(self, timeout=None):
+            # A timed join cannot complete work held by the test scheduler.
+            if timeout is None and self.is_alive():
+                raise AssertionError('Run the queued worker before joining it')
 
-    # Read result constants
-    _RA.READ_OK = 'read_success'
-    _RA.READ_FAIL = 'read_failed'
-    _RA.READ_PARTIAL = 'read_partial'
-    _RA.READ_NO_KEYS = 'read_missing_keys'
-    _RA.READ_ABORT = 'read_abort'
+        def run(self):
+            try:
+                super().run()
+            finally:
+                self.pending = False
 
-    def _ra_onReadComplete(self, status, data=None):
-        self._reader = None
-        if status in ('read_success',):
-            self._read_bundle = data or {}
-            self._showReadSuccess()
-        elif status in ('read_partial',):
-            self._read_bundle = data or {}
-            self._showReadSuccess(partial=True)
-        elif status in ('read_failed',):
-            self._showReadFailed()
-        elif status in ('read_missing_keys',):
-            self._launchWarningKeys()
-        elif status in ('read_abort',):
-            self._showNoTag()
-        else:
-            self._showReadFailed()
-    _RA.onReadComplete = _ra_onReadComplete
+    monkeypatch.setattr(threading, 'Thread', DeferredThread)
 
-    def _ra_onReadProgress(self, phase, current, total, text=''):
-        if hasattr(self, '_progress') and self._progress is not None:
-            pct = (current * 100) // max(total, 1)
-            self._progress.setProgress(pct)
-            self._progress.setMessage(text)
-        if phase == 'fchk':
-            self._keys_found = current
-            self._keys_total = total
-    _RA.onReadProgress = _ra_onReadProgress
-    _RA._keys_found = 0
-    _RA._keys_total = 0
+    def unexpected_process(*args, **kwargs):
+        pytest.fail('Activity test attempted a real host command; fake its device boundary')
 
-    def _ra_onReadError(self, msg=''):
-        self._reader = None
-        self._showReadFailed()
-    _RA._onReadError = _ra_onReadError
-
-    # ------ AutoCopyActivity ------
-    from activity_main import AutoCopyActivity as _AC
-
-    _LF_TYPE_IDS = {8, 9, 10, 11, 12, 13, 14, 15, 16, 23, 24,
-                    28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 45}
-
-    def _ac_isLFTag(self):
-        sr = self._scan_result
-        if not isinstance(sr, dict):
-            return False
-        return sr.get('type', -1) in _LF_TYPE_IDS
-    _AC._isLFTag = _ac_isLFTag
-
-    def _ac_onReadComplete(self, result):
-        if result is None:
-            self._state = self.STATE_READ_FAILED
-            self._showReadFailed()
-            return
-        if not isinstance(result, dict):
-            return
-        self._reader = None
-        if getattr(self, '_progressbar', None) is not None:
-            self._progressbar.hide()
-        status = result.get('status', '')
-        if status == 'read_ok_1':
-            self._read_data = result
-            self._read_bundle = result.get('data', result)
-            self._promptSwapCard()
-        elif status == 'read_ok_2':
-            self._read_data = result
-            self._read_bundle = result.get('data', result)
-            self._showReadPartialSuccess()
-        elif status in ('read_failed', 'read_error', 'keys_check_failed'):
-            self._state = self.STATE_READ_FAILED
-            self._showReadFailed()
-        elif status == 'read_timeout':
-            self._state = self.STATE_READ_TIMEOUT
-            self._showReadFailed()
-        elif status == 'no_valid_key':
-            self._state = self.STATE_READ_NO_KEY_HF
-            self._showReadFailed()
-        elif status == 'no_valid_key_t55xx':
-            self._state = self.STATE_READ_NO_KEY_LF
-            self._showReadFailed()
-        elif status == 'missing_keys':
-            self._state = self.STATE_READ_MISSING_KEYS
-            self._read_data = result
-            self._read_bundle = result.get('data', result)
-            self._promptSwapCard()
-        else:
-            self._state = self.STATE_READ_FAILED
-            self._showReadFailed()
-    _AC._onReadComplete = _ac_onReadComplete
-
-    def _ac_onWriteComplete(self, result):
-        if getattr(self, '_progressbar', None) is not None:
-            self._progressbar.hide()
-        if result == 'write_success':
-            self._state = self.STATE_WRITE_SUCCESS
-            if self._isLFTag():
-                self._startVerify()
-            else:
-                self._showWriteSuccess()
-        else:
-            self._state = self.STATE_WRITE_FAILED
-            self._showWriteFailed()
-    _AC._onWriteComplete = _ac_onWriteComplete
-
-    # ------ DiagnosisActivity ------
-    from activity_tools import DiagnosisActivity as _DA
-    _DA._test_listview = property(lambda self: self._main_listview)
-    _DA._test_items = property(lambda self: self._main_items)
-
-    # ------ ConsolePrinterActivity ------
-    from activity_main import ConsolePrinterActivity as _CP
-
-    def _cp_onPM3Complete(self, result=None):
-        pass
-    _CP._onPM3Complete = _cp_onPM3Complete
-
-    def _cp_appendLine(self, line):
-        if hasattr(self, '_console'):
-            self._console.addLine(line)
-    _CP.appendLine = _cp_appendLine
-
-    def _cp_appendText(self, text):
-        if hasattr(self, '_console'):
-            self._console.addText(text)
-    _CP.appendText = _cp_appendText
-
-    _CP.is_complete = property(
-        lambda self: not getattr(self, '_poll_thread', None)
-        or not self._poll_thread.is_alive()
-    )
-    _CP.is_running = property(
-        lambda self: getattr(self, '_poll_thread', None) is not None
-        and self._poll_thread.is_alive()
-    )
-
-    # ------ WriteActivity ------
-    from activity_main import WriteActivity as _WA
-    _WA._infos = property(lambda self: self.infos)
-    _WA._progressbar = property(lambda self: self._write_progressbar)
-    _WA._toast = property(lambda self: self._write_toast)
-
-    # ------ WarningM1Activity ------
-    from activity_main import WarningM1Activity as _WM
-    _WM.PAGE_COUNT = _WM.PAGE_MAX + 1
-
-    # ------ CardWalletActivity ------
-    from activity_main import CardWalletActivity as _CW
-    _CW._parseFilename = _CW._formatFilename
-
-    # ------ SniffActivity ------
-    from activity_main import SniffActivity as _SN
-    _orig_sn_init = _SN.__init__
-    def _sn_init(self, bundle=None):
-        _orig_sn_init(self, bundle)
-        if not hasattr(self, '_decode_pb'):
-            self._decode_pb = None
-            self._decode_count = 0
-    _SN.__init__ = _sn_init
-
-
-try:
-    _install_api_adapters()
-except Exception as _e:
-    import warnings as _w
-    _w.warn("API adapter install failed: %s" % _e)
+    monkeypatch.setattr(subprocess, 'Popen', unexpected_process)
+    monkeypatch.setattr(os, 'system', unexpected_process)
+    yield workers

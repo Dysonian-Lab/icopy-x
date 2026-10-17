@@ -185,23 +185,27 @@ class TestEraseTagStates:
         texts = canvas.get_all_text()
         assert any('No valid keys' in t for t in texts)
 
-    def test_erasing_pwr_ignored(self):
-        """PWR during ERASING is ignored (busy state)."""
+    @pytest.mark.parametrize('writing_blocks', [False, True])
+    def test_erasing_power_cancels_unless_blocks_are_being_written(self, writing_blocks):
+        """Cancel key checking, but do not interrupt active block writes."""
         act = _create_erase()
         act._state = act.STATE_ERASING
+        act._writing_blocks = writing_blocks
         act.onKeyEvent(KEY_PWR)
-        # PWR is ignored during SCANNING/ERASING
-        assert not act.life.destroyed
+        assert act.life.destroyed is not writing_blocks
 
-    def test_success_m1_re_erases(self):
-        """M1 in SUCCESS state triggers re-erase (not exit)."""
+    def test_success_only_m2_re_erases(self):
+        """The result screen has one Erase button, bound to M2 (ce9b5eb)."""
         act = _create_erase()
         act._state = act.STATE_ERASING
         act._onEraseResult('success')
         assert act.state == act.STATE_SUCCESS
         act.onKeyEvent(KEY_M1)
-        # M1/M2/OK in SUCCESS re-erase
-        assert act.state in (act.STATE_SCANNING, act.STATE_ERASING)
+        assert act.state == act.STATE_SUCCESS
+        act.onKeyEvent(KEY_OK)
+        assert act.state == act.STATE_SUCCESS
+        act.onKeyEvent(KEY_M2)
+        assert act.state == act.STATE_SCANNING
 
     def test_success_pwr_exits(self):
         """PWR in SUCCESS state finishes activity (after toast dismiss)."""

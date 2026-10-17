@@ -124,15 +124,14 @@ class TestScreenRendering:
         assert 'iCopy-X' in all_text or len(content_texts) > 0
 
     def test_diagnosis_structure(self):
-        """Diagnosis: title, 2 main items (User/Factory)."""
+        """OSS Diagnosis opens directly at the user-test tips screen."""
         from activity_tools import DiagnosisActivity
         act = actstack.start_activity(DiagnosisActivity)
 
         state = extract_ui_state(act)
         assert state['title'] == 'Diagnosis'
-        # Diagnosis starts in ITEMS_MAIN state with no buttons
-        # M2="Start" only appears after selecting an item (TIPS state)
-        assert state['M2'] is None
+        assert state['M1'] == 'Cancel'
+        assert state['M2'] == 'Start'
 
     def test_title_bar_present(self):
         """Every activity must have a title bar rectangle."""

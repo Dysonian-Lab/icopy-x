@@ -384,3 +384,8 @@ def actstack_setup():
     yield
     _actstack._reset()
     _restore_modules(saved)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_activity_workers(activity_workers):
+    """These are host UI flows; background device I/O is test-controlled."""
