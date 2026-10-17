@@ -658,6 +658,44 @@ def test_final_write_recheck_dispatches_only_confirmed_compatible_target(store, 
     assert activity._state == activity.STATE_RESULT
 
 
+def test_verify_cannot_switch_to_another_target_family(store, monkeypatch):
+    activity = start()
+    activity._source_data = captured()
+    activity._target_type = 'hf_iclass'
+    calls = []
+    monkeypatch.setattr(ics_decoder, 'detect_target', lambda: 'lf_t5577')
+    monkeypatch.setattr(ics_decoder, 'verify_target_card', lambda *args: calls.append(args))
+    activity._do_verify_bg()
+    assert not calls
+    assert activity._verify_success is False
+    assert activity._target_type == 'hf_iclass'
+    assert activity._verify_msg == 'Target changed'
+
+
+@pytest.mark.parametrize('source', [None, 'valid'])
+def test_early_write_failure_waits_for_tk_callback(store, monkeypatch, source):
+    from types import SimpleNamespace
+    activity = start()
+    activity._source_data = captured() if source else None
+    callbacks = []
+    monkeypatch.setattr(ics_decoder, 'detect_target', lambda: None)
+    monkeypatch.setattr(actstack, '_root', SimpleNamespace(
+        after=lambda delay, callback: callbacks.append(callback)))
+    activity._do_write()
+    assert activity._state == activity.STATE_HOME
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert activity._state == activity.STATE_RESULT
+
+
+def test_late_completions_cannot_redraw_destroyed_activity(store):
+    activity = start()
+    activity.onDestroy()
+    activity._on_write_done()
+    activity._on_verify_done()
+    assert activity._state == activity.STATE_DESTROYED
+
+
 @pytest.mark.parametrize('text', [
     '$A_CARD_STOP$\nBit#:26\nFC#:12\nID#:34\n$A_CARD_START$',
     '$A_CARD_START$\nBit#:26\nFC#:12\nID#:34',
