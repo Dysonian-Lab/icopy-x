@@ -1,0 +1,4 @@
+# Versions compatible with the device's Python 3.8 baseline.
+pytest==8.3.5
+Pillow==10.4.0
+pyserial==3.5
