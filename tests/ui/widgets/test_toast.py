@@ -145,26 +145,38 @@ class TestToastAutoDismiss:
     def test_auto_dismiss_timer_set(self, canvas, toast):
         """show() with duration > 0 stores an after() timer."""
         toast.show('Timed', duration_ms=3000)
-        assert len(canvas._timers) == 1
+        assert canvas._timers[toast._timer_id] == (3000, toast.cancel, ())
+        canvas.advance(2999)
+        assert toast.isShow()
+        canvas.advance(1)
+        assert not toast.isShow()
 
     def test_cancel_cancels_timer(self, canvas, toast):
         """cancel() removes the auto-dismiss timer."""
         toast.show('Timed', duration_ms=3000)
-        assert len(canvas._timers) == 1
+        dismiss_timer = toast._timer_id
+        assert dismiss_timer in canvas._timers
         toast.cancel()
+        assert dismiss_timer not in canvas._timers
+        # One queued overlay-raise callback may remain; it must terminate
+        # after noticing the toast was cancelled, without showing it again.
+        canvas.advance(50)
         assert len(canvas._timers) == 0
+        assert not toast.isShow()
 
     def test_persistent_toast_no_timer(self, canvas, toast):
         """duration_ms=0 means no auto-dismiss timer."""
         toast.show('Persistent', duration_ms=0)
-        assert len(canvas._timers) == 0
+        assert toast._timer_id is None
+        # The overlay raise timer must not dismiss a persistent toast.
+        canvas.advance(10000)
+        assert toast.isShow()
 
     def test_auto_dismiss_fires_cancel(self, canvas, toast):
         """When timer fires, toast is dismissed."""
         toast.show('Will dismiss', duration_ms=1000)
         assert toast.isShow() is True
-        # Fire the timer manually
-        canvas.fire_all_after()
+        canvas.advance(1000)
         assert toast.isShow() is False
         assert len(canvas.find_all()) == 0
 

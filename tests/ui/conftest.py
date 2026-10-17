@@ -1,6 +1,9 @@
 """UI test conftest — MockCanvas and shared fixtures."""
 
 import copy
+import os
+import subprocess
+import threading
 import unittest.mock as _mock
 import pytest
 
@@ -405,3 +408,41 @@ def _mock_tk_font():
     with _mock.patch('tkinter.font.Font', mock_font_cls), \
          _mock.patch('PIL.ImageTk.PhotoImage', _mock.MagicMock()):
         yield
+
+
+@pytest.fixture
+def activity_workers(monkeypatch):
+    """Queue activity workers so tests control completion instead of racing I/O.
+
+    A test that needs a worker's result must supply its device doubles and
+    explicitly call that worker's run(). No activity state logic is replaced.
+    """
+    workers = []
+
+    class DeferredThread(threading.Thread):
+        def start(self):
+            self.pending = True
+            workers.append(self)
+
+        def is_alive(self):
+            return getattr(self, 'pending', False)
+
+        def join(self, timeout=None):
+            # A timed join cannot complete work held by the test scheduler.
+            if timeout is None and self.is_alive():
+                raise AssertionError('Run the queued worker before joining it')
+
+        def run(self):
+            try:
+                super().run()
+            finally:
+                self.pending = False
+
+    monkeypatch.setattr(threading, 'Thread', DeferredThread)
+
+    def unexpected_process(*args, **kwargs):
+        pytest.fail('Activity test attempted a real host command; fake its device boundary')
+
+    monkeypatch.setattr(subprocess, 'Popen', unexpected_process)
+    monkeypatch.setattr(os, 'system', unexpected_process)
+    yield workers

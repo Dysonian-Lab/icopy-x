@@ -257,10 +257,15 @@ class TestStateExtraction:
 class TestActivityRegistry:
     """All activity registry entries should be instantiable."""
 
-    def test_registry_has_14_entries(self):
-        """Activity registry should have entries for all 14 menu items."""
+    def test_registry_contains_core_and_plugin_routes(self):
+        """All core routes, including ICS and the two submenus, are registered."""
         from actmain import _ACTIVITY_REGISTRY
-        assert len(_ACTIVITY_REGISTRY) == 14
+        assert set(_ACTIVITY_REGISTRY) == {
+            'autocopy', 'dump_files', 'scan', 'read_list', 'sniff',
+            'simulation', 'pcmode', 'backlight', 'diagnosis', 'volume',
+            'about', 'erase', 'time_settings', 'lua_script', 'plugins_menu',
+            'settings_menu', 'iclass_se',
+        }
 
     def test_all_registry_modules_importable(self):
         """Every module in the activity registry should be importable."""
@@ -268,15 +273,8 @@ class TestActivityRegistry:
         import importlib
 
         for action_key, (mod_path, class_name) in _ACTIVITY_REGISTRY.items():
-            try:
-                mod = importlib.import_module(mod_path)
-                assert hasattr(mod, class_name), (
-                    "%s.%s not found" % (mod_path, class_name)
-                )
-            except ImportError as e:
-                # Some modules may have dependencies we can't satisfy
-                # in unit tests (e.g., scan.so) -- that's OK
-                pass
+            mod = importlib.import_module(mod_path)
+            assert hasattr(mod, class_name), "%s.%s not found" % (mod_path, class_name)
 
     def test_simple_activities_create(self):
         """Activities without middleware dependencies should create cleanly."""

@@ -197,9 +197,14 @@ class TestFullStackBoot:
         texts = canvas.get_all_text()
         assert "Main Page" in texts
 
-        # 14 items in ListView
+        # Current core menu includes ICS Decoder and Settings.
         assert main_activity.lv_main_page is not None
-        assert len(main_activity.lv_main_page._items) == 14
+        assert main_activity.lv_main_page._items == [
+            'Auto Copy', 'Dump Files', 'Scan Tag', 'Read Tag', 'Sniff TRF',
+            'Simulation', 'PC-Mode', 'Diagnosis', 'Backlight', 'Volume',
+            'About', 'Erase Tag', 'Time Settings', 'LUA Script',
+            'ICS Decoder', 'Settings',
+        ]
 
         # Main menu has no M2 button label (setRightButton(""))
         # Verify menu items are visible instead
@@ -445,14 +450,8 @@ class TestPWRAlwaysExits:
 
     # Activities where PWR does NOT immediately exit:
     # - ButtonTestActivity: records PWR as a button press, never calls finish
-    # - ScanActivity: ignores all keys while in SCANNING state (auto-starts scan)
-    # - AutoCopyActivity: auto-starts scan with setbusy(), PWR swallowed
-    # - ReadActivity: auto-starts scan on create, SCANNING state ignores all keys
     _PWR_EXCEPTIONS = {
         'ButtonTestActivity',   # PWR is recorded as a button press
-        'ScanActivity',         # SCANNING state ignores all keys
-        'AutoCopyActivity',     # auto-starts scan with setbusy()
-        'ReadActivity',         # auto-starts scan, SCANNING state ignores all keys
     }
 
     @pytest.mark.parametrize(

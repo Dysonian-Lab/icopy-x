@@ -3,7 +3,7 @@
 Covers:
   - Title display
   - List population (non-promoted only)
-  - M1/PWR finish behavior
+  - Hidden M1 is inactive; PWR exits
   - UP/DOWN scrolling
   - OK launches plugin activity
   - Empty plugin list
@@ -108,12 +108,12 @@ class TestPluginsMenu:
         assert 'Beta' in names
         assert 'Gamma' not in names
 
-    def test_m1_finishes(self, mock_plugins):
-        """M1 key finishes the activity."""
+    def test_hidden_m1_is_inactive(self, mock_plugins):
+        """The unlabeled M1 is suppressed by BaseActivity's button guard."""
         act = actstack.start_activity(PluginsMenuActivity)
         assert actstack.get_stack_size() == 1
         act.callKeyEvent(KEY_M1)
-        assert actstack.get_stack_size() == 0
+        assert actstack.get_stack_size() == 1
 
     def test_pwr_finishes(self, mock_plugins):
         """PWR key finishes the activity."""
@@ -146,6 +146,6 @@ class TestPluginsMenu:
         # Key events should not crash
         act.callKeyEvent(KEY_DOWN)
         act.callKeyEvent(KEY_OK)
-        # M1 exits cleanly
-        act.callKeyEvent(KEY_M1)
+        # PWR exits cleanly, including when no plugins are installed.
+        act.callKeyEvent(KEY_PWR)
         assert actstack.get_stack_size() == 0
