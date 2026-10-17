@@ -215,6 +215,25 @@ class TestMockCanvasAfter:
 class TestMockCanvasHelpers:
     """Verify test-only helper methods."""
 
+    def test_virtual_time_orders_nested_and_cancelled_callbacks(self, canvas):
+        calls = []
+        canvas.after(200, calls.append, 'last')
+        cancelled = canvas.after(20, calls.append, 'cancelled')
+        canvas.after_cancel(cancelled)
+
+        def first():
+            calls.append('first')
+            canvas.after(50, calls.append, 'nested')
+
+        canvas.after(50, first)
+        canvas.advance(99)
+        assert calls == ['first']
+        canvas.advance(1)
+        assert calls == ['first', 'nested']
+        canvas.advance(100)
+        assert calls == ['first', 'nested', 'last']
+        assert not canvas._timers
+
     def test_get_items_by_type(self, canvas):
         canvas.create_rectangle(0, 0, 10, 10)
         canvas.create_text(5, 5, text="hi")
