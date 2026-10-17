@@ -433,7 +433,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         self.setidle()
         if self._scanner is not None:
             try:
-                self._scanner.stop()
+                self._scanner.scan_stop()
             except Exception:
                 pass
             self._scanner = None
@@ -466,6 +466,13 @@ class ReadActivity(ConsoleMixin, BaseActivity):
                 self._showNoTag()
             return
 
+        # scan.createTagMulti() sets found=True with CODE_TAG_MULT (-3).
+        # Classify collisions before the single-tag success path; a collision
+        # must never start a read against an unidentified tag.
+        if result.get('return') == -3 or result.get('hasMulti', False):
+            self._showNoTag(resources.get_str('tag_multi'))
+            return
+
         found = result.get('found', False)
         if found:
             self._scan_cache = result
@@ -480,11 +487,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
             else:
                 _after_complete()
         else:
-            has_multi = result.get('hasMulti', False)
-            if has_multi:
-                self._showNoTag(resources.get_str('tag_multi'))
-            else:
-                self._showNoTag()
+            self._showNoTag()
 
     # ================================================================
     # Read phase
