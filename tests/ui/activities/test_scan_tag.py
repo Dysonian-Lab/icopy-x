@@ -250,32 +250,25 @@ class TestScanActivityKeyEvents:
         act.onKeyEvent(KEY_M2)
         assert act.state == act.STATE_SCANNING
 
-    def test_found_pwr_dismisses_toast_then_exits(self):
-        """In FOUND, first PWR dismisses toast, second PWR exits.
-
-        Must also clear busy state (set by _startScan in onCreate)
-        since _onScanResult alone does not call setidle(). In real
-        usage, onScanFinish calls setidle() before _onScanResult.
-        """
+    def test_found_power_exits_even_when_toast_is_visible(self):
+        """PWR exits in one press; it also dismisses the result toast."""
         act = _create_scan()
-        # Simulate full scan completion: clear scanning/busy flags
-        act._is_scanning = False
-        act.setidle()
-        act._onScanResult(_make_found_result())
+        act.onScanFinish(_make_found_result())
+        act.getCanvas().advance(250)
         assert act.state == act.STATE_FOUND
-        # First PWR: _handlePWR dismisses the visible toast
-        act.onKeyEvent(KEY_PWR)
-        assert not act.life.destroyed
-        # Second PWR: toast gone, so finish() is called
         act.onKeyEvent(KEY_PWR)
         assert act.life.destroyed
 
-    def test_not_found_m1_rescans(self):
-        """In NOT_FOUND, M1 triggers a rescan."""
+    def test_not_found_only_m2_rescans(self):
+        """M1 and OK are unbound on the single-button result screen."""
         act = _create_scan()
-        act._onScanResult(_make_not_found_result())
+        act.onScanFinish(_make_not_found_result())
+        act.getCanvas().advance(250)
         assert act.state == act.STATE_NOT_FOUND
-        act.onKeyEvent(KEY_M1)
+        for key in (KEY_M1, KEY_OK):
+            act.onKeyEvent(key)
+            assert act.state == act.STATE_NOT_FOUND
+        act.onKeyEvent(KEY_M2)
         assert act.state == act.STATE_SCANNING
 
     def test_not_found_m2_rescans(self):
@@ -285,12 +278,16 @@ class TestScanActivityKeyEvents:
         act.onKeyEvent(KEY_M2)
         assert act.state == act.STATE_SCANNING
 
-    def test_wrong_type_m1_rescans(self):
-        """In WRONG_TYPE, M1 triggers a rescan."""
+    def test_wrong_type_only_m2_rescans(self):
+        """Wrong-type results also expose only the M2 Rescan action."""
         act = _create_scan()
-        act._onScanResult(_make_wrong_type_result())
+        act.onScanFinish(_make_wrong_type_result())
+        act.getCanvas().advance(250)
         assert act.state == act.STATE_WRONG_TYPE
-        act.onKeyEvent(KEY_M1)
+        for key in (KEY_M1, KEY_OK):
+            act.onKeyEvent(key)
+            assert act.state == act.STATE_WRONG_TYPE
+        act.onKeyEvent(KEY_M2)
         assert act.state == act.STATE_SCANNING
 
     def test_multi_m2_rescans(self):

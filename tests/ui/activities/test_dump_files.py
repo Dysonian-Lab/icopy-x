@@ -3,7 +3,7 @@
 Ground truth:
     - Title: "Dump Files" (resources key: card_wallet)
     - Modes: TYPE_LIST -> FILE_LIST -> DELETE_CONFIRM
-    - TYPE_LIST: 28 dump types, UP/DOWN scroll, OK selects type
+    - TYPE_LIST: only types with dump files appear; UP/DOWN scroll, OK selects
     - FILE_LIST: M1=Details(toggle date), M2=Delete
     - DELETE_CONFIRM: M1=No, M2=Yes
     - PWR in FILE_LIST: back to TYPE_LIST
@@ -74,12 +74,13 @@ class TestCardWalletActivity:
         act = _create_wallet()
         assert act._mode == 'type_list'
 
-    def test_type_list_has_28_items(self):
-        """Type list shows 28 dump type items."""
+    def test_type_catalog_includes_paxton_and_hitag2(self):
+        """The catalog extends the original 28 types with Paxton and Hitag2."""
         act = _create_wallet()
         from activity_main import DUMP_TYPE_ORDER
         assert act._listview is not None
-        assert len(DUMP_TYPE_ORDER) == 28
+        assert len(DUMP_TYPE_ORDER) == 30
+        assert DUMP_TYPE_ORDER[-2:] == [('Paxton', 'paxton'), ('Hitag2 ID', 'hitag2')]
 
     def test_empty_directory(self, empty_dir):
         """Empty dump directory shows empty state tips."""
@@ -156,9 +157,19 @@ class TestCardWalletActivity:
         result = CardWalletActivity._formatFilename('M1-1K-4B_DAEFB416_1.bin')
         assert result == '1K-4B-DAEFB416(1)'
 
-    def test_scroll_type_list(self):
-        """UP/DOWN navigate the type list."""
+    def test_scroll_type_list(self, tmp_path, monkeypatch):
+        """UP/DOWN navigate only types with actual dump files."""
+        import activity_main
+        first = tmp_path / 'viking'
+        second = tmp_path / 'mfu'
+        first.mkdir()
+        second.mkdir()
+        (first / 'card.txt').write_text('test dump')
+        (second / 'card.bin').write_bytes(b'test dump')
+        monkeypatch.setattr(activity_main, 'DUMP_DIRS',
+                            {'viking': str(first), 'mfu': str(second)})
         act = _create_wallet()
+        assert act._visible_types == [0, 1]
         assert act._listview.selection() == 0
         act.onKeyEvent(KEY_DOWN)
         assert act._listview.selection() == 1

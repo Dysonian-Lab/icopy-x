@@ -2,13 +2,13 @@
 
 Validates against the exhaustive UI mapping in
 docs/UI_Mapping/04_read_tag/V1090_READ_UI_STATES.md and the verified
-read_list_map.json (40 readable types, 8 pages).
+read_list_map.json, extended by the project's Paxton and Hitag2 entries.
 
 Ground truth:
     ReadListActivity:
     - Title: "Read Tag X/Y" with page indicator
-    - 40 readable tag types across 8 pages (5 items/page)
-    - QEMU verified: "Read Tag 1/8" through "Read Tag 8/8"
+    - 42 readable tag types across 9 pages (5 items/page)
+    - The original 40-type QEMU mapping predates those two additions.
     - M1="Back", M2="Read"
     - UP/DOWN: scroll list (paginated)
     - M2/OK: launch ReadActivity with selected type
@@ -66,20 +66,21 @@ class TestReadListCreation:
         texts = canvas.get_all_text()
         assert any('1/' in t for t in texts)
 
-    def test_40_readable_types(self):
-        """Must have exactly 40 readable tag types."""
+    def test_readable_types_include_project_extensions(self):
+        """Keep the original types plus Paxton and Hitag2."""
         act = _create_read_list()
-        assert len(act.tag_type_list) == 40
+        assert len(act.tag_type_list) == 42
+        assert act.tag_type_list[-3:] == ['EM4305', 'Paxton Net2/Switch2', 'Hitag2 ID']
 
     def test_first_type_m1_s50(self):
         """First type in list must be 'M1 S50 1K 4B'."""
         act = _create_read_list()
         assert act.tag_type_list[0] == 'M1 S50 1K 4B'
 
-    def test_last_type_em4305(self):
-        """Last type in list must be 'EM4305'."""
+    def test_last_type_hitag2(self):
+        """Hitag2 is the final appended type."""
         act = _create_read_list()
-        assert act.tag_type_list[-1] == 'EM4305'
+        assert act.tag_type_list[-1] == 'Hitag2 ID'
 
     def test_buttons_back_read(self):
         """Buttons are dismissed (ground truth: list occupies full content)."""
@@ -109,7 +110,7 @@ class TestReadListCreation:
 # ===============================================================
 
 class TestReadListPagination:
-    """ReadListActivity pagination across 8 pages."""
+    """ReadListActivity pagination, including the partial final page."""
 
     def test_multiple_pages(self):
         """40 items should span multiple pages. Title should show X/N."""
@@ -137,9 +138,10 @@ class TestReadListPagination:
         """Navigate to the last item should show the last page."""
         act = _create_read_list()
         items_per_page = act._listview._max_display
-        total_pages = (40 + items_per_page - 1) // items_per_page
+        count = len(act.tag_type_list)
+        total_pages = (count + items_per_page - 1) // items_per_page
         # Navigate to last item
-        for _ in range(39):
+        for _ in range(count - 1):
             act.onKeyEvent(KEY_DOWN)
         canvas = act.getCanvas()
         texts = canvas.get_all_text()

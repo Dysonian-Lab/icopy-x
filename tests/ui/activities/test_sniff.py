@@ -277,14 +277,14 @@ class TestSniffSniffingState:
         act.onKeyEvent(KEY_M1)  # M1 in SNIFFING -> stopSniff + finish
         assert act.life.destroyed
 
-    def test_sniffing_pwr_blocked_by_busy(self):
-        """PWR during SNIFFING is blocked (busy state + toast dismiss)."""
+    def test_sniffing_power_cancels_and_returns_to_type_list(self):
+        """PWR during sniffing aborts the operation and returns to the list."""
         act = _create_sniff()
         act.onKeyEvent(KEY_M2)  # -> INSTRUCTION
         act.onKeyEvent(KEY_M1)  # -> SNIFFING
-        # PWR first dismisses toast, then blocked by busy state
         act.onKeyEvent(KEY_PWR)
-        assert act.state == act.STATE_SNIFFING
+        assert act.state == act.STATE_TYPE_SELECT
+        assert not act.sniffing
 
     def test_sniffing_hides_list(self):
         """Entering SNIFFING sets sniffing flag (list was already hidden in INSTRUCTION)."""

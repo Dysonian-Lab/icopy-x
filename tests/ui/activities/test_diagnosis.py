@@ -69,38 +69,37 @@ class TestDiagnosisActivity:
         # No button labels in ITEMS_MAIN
         assert 'Diagnosis' in texts
 
-    def test_main_items_displayed(self):
-        """Level 1 must show 'User diagnosis' and 'Factory diagnosis'."""
+    def test_opens_user_diagnosis_tips(self):
+        """The OSS entry point skips the factory menu and shows user tips."""
         act = _create_diagnosis()
         canvas = act.getCanvas()
         texts = canvas.get_all_text()
         # BigTextListView renders joined text
         all_text = ' '.join(texts)
-        assert 'User diagnosis' in all_text
-        assert 'Factory diagnosis' in all_text
+        assert 'Press start button' in all_text
+        assert 'Factory diagnosis' not in all_text
 
-    def test_initial_state_items_main(self):
-        """Initial state must be ITEMS_MAIN."""
+    def test_initial_state_items_test(self):
+        """Initial state is the user diagnosis tips screen."""
         act = _create_diagnosis()
-        assert act.get_state() == 'items_main'
-
-    def test_ok_transitions_to_items_test(self):
-        """OK in ITEMS_MAIN transitions to ITEMS_TEST."""
-        act = _create_diagnosis()
-        assert act.get_state() == 'items_main'
-        act.onKeyEvent(KEY_OK)
         assert act.get_state() == 'items_test'
 
-    def test_m2_transitions_to_items_test(self):
-        """M2 in ITEMS_MAIN transitions to ITEMS_TEST."""
+    def test_ok_starts_tests_from_tips(self):
+        """OK on the initial tips screen starts the test worker."""
+        act = _create_diagnosis()
+        assert act.get_state() == 'items_test'
+        act.onKeyEvent(KEY_OK)
+        assert act.get_state() == 'testing'
+
+    def test_m2_starts_tests_from_tips(self):
+        """M2 on the initial tips screen starts the test worker."""
         act = _create_diagnosis()
         act.onKeyEvent(KEY_M2)
-        assert act.get_state() == 'items_test'
+        assert act.get_state() == 'testing'
 
     def test_tips_shown_in_items_test(self):
         """ITEMS_TEST shows tips text with M1=Cancel, M2=Start."""
         act = _create_diagnosis()
-        act.onKeyEvent(KEY_OK)  # -> ITEMS_TEST (tips screen)
         assert act.get_state() == 'items_test'
         canvas = act.getCanvas()
         texts = canvas.get_all_text()
@@ -113,7 +112,7 @@ class TestDiagnosisActivity:
         assert len(act._USER_TESTS) == 5
 
     def test_main_listview_exists(self):
-        """Main listview is created with 2 items."""
+        """The hidden main listview is available when leaving tips."""
         act = _create_diagnosis()
         assert act._main_listview is not None
         assert act._main_listview.selection() == 0
@@ -121,7 +120,6 @@ class TestDiagnosisActivity:
     def test_pwr_back_to_main_from_test(self):
         """PWR in ITEMS_TEST returns to ITEMS_MAIN."""
         act = _create_diagnosis()
-        act.onKeyEvent(KEY_OK)  # -> ITEMS_TEST
         assert act.get_state() == 'items_test'
         act.onKeyEvent(KEY_PWR)
         assert act.get_state() == 'items_main'
@@ -129,6 +127,7 @@ class TestDiagnosisActivity:
     def test_pwr_finishes_from_main(self):
         """PWR in ITEMS_MAIN finishes the activity."""
         act = _create_diagnosis()
+        act.onKeyEvent(KEY_M1)  # cancel tips -> ITEMS_MAIN
         assert act.get_state() == 'items_main'
         act.onKeyEvent(KEY_PWR)
         assert act.life.destroyed
@@ -136,7 +135,6 @@ class TestDiagnosisActivity:
     def test_start_test_changes_state(self):
         """M2 in ITEMS_TEST triggers _run_all_tests and changes to TESTING."""
         act = _create_diagnosis()
-        act.onKeyEvent(KEY_OK)  # -> ITEMS_TEST (tips screen)
         act.onKeyEvent(KEY_M2)  # start tests
         # State should be TESTING (tests run in background thread)
         assert act.get_state() == 'testing'
