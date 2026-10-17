@@ -259,3 +259,22 @@ def test_worker_callback_only_updates_progress_when_ui_queue_runs(read_flow, mon
     assert updated_on == []
     ui_queue.advance(0)
     assert updated_on == [ui_thread]
+
+
+@pytest.mark.parametrize('stage', ['scanning', 'completing', 'reading', 'multiple', 'no_tag'])
+def test_exit_removes_widget_timers_before_destroying_canvas(read_flow, stage):
+    activity = start_read()
+    if stage == 'completing':
+        read_flow.scanner.call_resulted(HF.copy())
+    elif stage == 'reading':
+        read_flow.scan_result(activity, HF.copy())
+        read_flow.reader.call_reading({'progress': 75})
+    elif stage in ('multiple', 'no_tag'):
+        result = scan.createTagMulti(100) if stage == 'multiple' else scan.createTagNoFound(100)
+        read_flow.scan_result(activity, result)
+    canvas = activity.getCanvas()
+    assert canvas._timers
+    activity.callKeyEvent(KEY_PWR)
+    # Real Tk deletes the callback's Tcl command when destroying the canvas.
+    # Leaving its timer queued then raises 'invalid command name'.
+    assert canvas._timers == {}

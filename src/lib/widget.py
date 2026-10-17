@@ -819,6 +819,7 @@ class ProgressBar:
         self._showing = False
 
         self._anim_id = 0      # Monotonic counter to cancel stale animations
+        self._after_ids = set()
 
         # Canvas tags — unique per instance via createTag
         self._tag_bg = createTag(self, 'bg')
@@ -898,7 +899,7 @@ class ProgressBar:
                     self._progress += step
                 self._redraw()
                 if self._progress != target and self._canvas:
-                    self._canvas.after(15, _step)
+                    self._schedule(15, _step)
             else:
                 self._progress = target
                 self._redraw()
@@ -925,7 +926,7 @@ class ProgressBar:
         self._animate_to(self._max)
 
         if self._canvas and self._showing and callback:
-            self._canvas.after(delay, callback)
+            self._schedule(delay, callback)
         elif callback:
             callback()
 
@@ -979,6 +980,29 @@ class ProgressBar:
         self._canvas.delete(self._tag_msg)
         self._canvas.delete(self._tag_timer)
         self._canvas.delete(self._tag_pct)
+
+    def _schedule(self, delay, callback):
+        """Track owned timers so disposal can cancel them before canvas teardown."""
+        timer_id = None
+
+        def _run():
+            self._after_ids.discard(timer_id)
+            callback()
+
+        timer_id = self._canvas.after(delay, _run)
+        self._after_ids.add(timer_id)
+
+    def dispose(self):
+        """Remove the bar and cancel animation/completion callbacks.
+
+        Use when discarding the bar, before destroying its canvas. hide()
+        remains a temporary visual change and preserves completion callbacks.
+        """
+        self._anim_id += 1
+        for timer_id in self._after_ids:
+            self._canvas.after_cancel(timer_id)
+        self._after_ids.clear()
+        self.hide()
 
     # -----------------------------------------------------------------
     # Internal rendering
@@ -1266,6 +1290,7 @@ class Toast:
         self._duration_ms = duration_ms
         self._showing = False
         self._timer_id = None
+        self._raise_timer_id = None
         self._tag_mask = createTag(self, 'mask_layer')
         self._tag_text = createTag(self, 'msg')
         self._tk_mask = None  # prevent GC of PhotoImage
@@ -1307,9 +1332,10 @@ class Toast:
         # when focus moves or edit mode toggles).  Each new item lands at
         # the top of the z-order and covers the toast.  Re-raise on a
         # 50 ms poll while the toast is showing so the toast stays on top
-        # regardless of what other widgets draw.  Polling ends when the
-        # toast is cancelled (self._showing flips to False in _clear).
+        # regardless of what other widgets draw. Clearing/replacing the toast
+        # cancels this timer so it cannot outlive the canvas or accumulate.
         def _reraise_loop():
+            self._raise_timer_id = None
             if not self._showing:
                 return
             try:
@@ -1318,11 +1344,11 @@ class Toast:
             except Exception:
                 pass
             try:
-                self._canvas.after(50, _reraise_loop)
+                self._raise_timer_id = self._canvas.after(50, _reraise_loop)
             except Exception:
                 pass
         try:
-            self._canvas.after(50, _reraise_loop)
+            self._raise_timer_id = self._canvas.after(50, _reraise_loop)
         except Exception:
             pass
 
@@ -1472,7 +1498,7 @@ class Toast:
         return result or [text]
 
     def cancel(self):
-        """Hide toast and cancel auto-dismiss timer."""
+        """Hide toast and cancel its auto-dismiss and overlay-raise timers."""
         if self._timer_id is not None:
             self._canvas.after_cancel(self._timer_id)
             self._timer_id = None
@@ -1483,6 +1509,9 @@ class Toast:
         return self._showing
 
     def _clear(self):
+        if self._raise_timer_id is not None:
+            self._canvas.after_cancel(self._raise_timer_id)
+            self._raise_timer_id = None
         if self._timer_id is not None:
             self._canvas.after_cancel(self._timer_id)
             self._timer_id = None

@@ -279,6 +279,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
     def onDestroy(self):
         self._cancelScan()
         self._cancelRead()
+        self._clearContent()
 
     def onKeyEvent(self, key):
         """State-dependent key routing.
@@ -449,7 +450,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
             except Exception:
                 pass
         if self._state == 'scanning' and self._progress is not None:
-            self._progress.hide()
+            self._progress.dispose()
             self._progress = None
 
     def _isCurrentScan(self, scan_token):
@@ -972,7 +973,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
 
         def _after_complete():
             if self._progress is not None:
-                self._progress.hide()
+                self._progress.dispose()
                 self._progress = None
             canvas = self.getCanvas()
             if canvas is not None:
@@ -1001,7 +1002,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
 
         def _after_complete():
             if self._progress is not None:
-                self._progress.hide()
+                self._progress.dispose()
                 self._progress = None
             canvas = self.getCanvas()
             if canvas is not None:
@@ -1032,7 +1033,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         self._state = 'warning_keys'
         # Hide reading progress bar before pushing Warning activity
         if self._progress is not None:
-            self._progress.hide()
+            self._progress.dispose()
             self._progress = None
         canvas = self.getCanvas()
         if canvas is not None:
@@ -1114,7 +1115,7 @@ class ReadActivity(ConsoleMixin, BaseActivity):
         must clear JSON renderer tags + template.so items.
         """
         if self._progress is not None:
-            self._progress.hide()
+            self._progress.dispose()
             self._progress = None
         if self._toast is not None:
             self._toast.cancel()
