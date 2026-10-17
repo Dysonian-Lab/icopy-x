@@ -29,6 +29,7 @@ RUN dpkg --add-architecture armhf && \
         make \
         pkg-config \
         git \
+        file \
         zip \
         libbz2-dev:armhf \
         zlib1g-dev:armhf \
@@ -67,8 +68,10 @@ CMD bash -c '\
         fi; \
     done && \
     echo "GCC $(arm-linux-gnueabihf-gcc -dumpversion) compat fixups..." && \
-    sed -i "s/-fstack-clash-protection//g" Makefile.defs client/Makefile 2>/dev/null || true && \
-    sed -i "s/static const uint8_t protocol_marker\[\]/const uint8_t protocol_marker[]/" client/src/cmdhfaliro.c 2>/dev/null || true && \
+    sed -i "s/-fstack-clash-protection//g" Makefile.defs client/Makefile && \
+    if [ -f client/src/cmdhfaliro.c ]; then \
+      sed -i "s/static const uint8_t protocol_marker\[\]/const uint8_t protocol_marker[]/" client/src/cmdhfaliro.c; \
+    fi && \
     if [ -f client/src/cmdhfvas.c ]; then \
       sed -i "s/^static const uint16_t \(VAS_STATUS_[A-Z_]*\) = \(0x[0-9A-Fa-f]*\);/#define \1 \2/" client/src/cmdhfvas.c; \
     fi && \

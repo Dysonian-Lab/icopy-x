@@ -1,3 +1,7 @@
+Applies to the pre-WaitForIso14aReply client (checked: v4.21128, v4.21611).
+For v4.23346, use the companion pm3_14a_select_warning_modern.patch.
+The two variants are mutually exclusive; only one should apply.
+
 diff --git a/client/src/cmdhf14a.c b/client/src/cmdhf14a.c
 index dc3066b..6eb1e74 100644
 --- a/client/src/cmdhf14a.c
@@ -11,8 +15,7 @@ index dc3066b..6eb1e74 100644
                  return PM3_ETIMEOUT;
              }
  
-@@ -2717,7 +2717,7 @@ int infoHF14A(bool verbose, bool do_nack_test, bool do_aid_search) {
-     SendCommandMIX(CMD_HF_ISO14443A_READER, ISO14A_CONNECT | ISO14A_CLEARTRACE | ISO14A_NO_DISCONNECT, 0, 0, NULL, 0);
+@@ -2718,6 +2718,6 @@ int infoHF14A(bool verbose, bool do_nack_test, bool do_aid_search) {
      PacketResponseNG resp;
      if (WaitForResponseTimeout(CMD_ACK, &resp, 2500) == false) {
 -        PrintAndLogEx(DEBUG, "iso14443a card select timeout");

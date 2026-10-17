@@ -395,7 +395,7 @@ def _generate_build_version(version_override=None):
     Priority:
         1. Explicit --version flag (e.g. "v0.6.1" from CI release)
         2. ICOPYX_VERSION env var (for CI/CD pipelines)
-        3. Auto-generated: short version string (local dev build)
+        3. Auto-generated: YYMMDD-HHMM UTC (compact local dev build ID)
 
     Returns:
         str: version string
@@ -405,7 +405,7 @@ def _generate_build_version(version_override=None):
     env_ver = os.environ.get('ICOPYX_VERSION', '')
     if env_ver:
         return env_ver
-    return "v1.0-ICS"
+    return datetime.now(timezone.utc).strftime("%y%m%d-%H%M")
 
 
 def build_ipk(output_path, serial_number="UNIVERSAL", dry_run=False,
@@ -468,7 +468,7 @@ def build_ipk(output_path, serial_number="UNIVERSAL", dry_run=False,
         # Strip firmware files from non-flash variant
         # Normalize path separators for cross-platform matching
         resources = [(s, p) for s, p in resources
-                     if not os.path.normpath(p).startswith(os.path.join("res", "firmware"))]
+                     if not p.replace("\\", "/").startswith("res/firmware/")]
         print(f"  (--no-flash: excluded res/firmware/ from IPK)")
     _add(resources)
 
