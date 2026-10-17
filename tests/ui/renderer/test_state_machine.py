@@ -1,12 +1,19 @@
 """Tests for StateMachine — multi-state flow engine.
 
-Uses the real scan_tag.json and main_menu.json definitions from the archive.
+Uses checked-in examples of the state-machine schema. Current application
+screens are presentation-only JSON; activity classes own their transitions.
+These fixtures exercise the generic engine without depending on an external
+archive or changing production screen definitions to the older schema.
 """
 
 import json
+from pathlib import Path
 import pytest
 
 from src.lib._state_machine import StateMachine, StateMachineError
+
+
+FIXTURES = Path(__file__).parent / 'fixtures'
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -15,27 +22,27 @@ from src.lib._state_machine import StateMachine, StateMachineError
 
 @pytest.fixture
 def scan_def():
-    """Load the real scan_tag.json definition."""
-    with open('/home/qx/archive/ui/screens/scan_tag.json', 'r') as f:
+    """Load the representative scan flow, including actions/transitions."""
+    with (FIXTURES / 'scan_flow.json').open(encoding='utf-8') as f:
         return json.load(f)
 
 
 @pytest.fixture
 def menu_def():
-    """Load the real main_menu.json definition (single-screen)."""
-    with open('/home/qx/archive/ui/screens/main_menu.json', 'r') as f:
+    """Load a single-screen definition with navigation bindings."""
+    with (FIXTURES / 'single_screen.json').open(encoding='utf-8') as f:
         return json.load(f)
 
 
 @pytest.fixture
 def sm(scan_def):
-    """StateMachine initialized with scan_tag.json."""
+    """StateMachine initialized with scan_flow.json."""
     return StateMachine(scan_def)
 
 
 @pytest.fixture
 def sm_menu(menu_def):
-    """StateMachine initialized with main_menu.json (single-screen)."""
+    """StateMachine initialized with single_screen.json (single-screen)."""
     return StateMachine(menu_def)
 
 
@@ -46,7 +53,7 @@ def sm_menu(menu_def):
 class TestInitialState:
 
     def test_initial_state_is_scanning(self, sm):
-        """scan_tag.json declares initial_state: 'scanning'."""
+        """scan_flow.json declares initial_state: 'scanning'."""
         sm.start()
         assert sm.current_state == 'scanning'
 
@@ -238,7 +245,7 @@ class TestOnEnter:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 8. Single-screen mode (main_menu.json)
+# 8. Single-screen mode (single_screen.json)
 # ══════════════════════════════════════════════════════════════════════
 
 class TestSingleScreen:
@@ -366,7 +373,7 @@ class TestEdgeCases:
             sm.start()
 
     def test_multi_tags_state_noop_key(self, sm):
-        """multi_tags state in scan_tag.json has M2 bound to noop."""
+        """multi_tags state in scan_flow.json has M2 bound to noop."""
         sm.start()
         sm.transition_to('multi_tags')
         assert sm.get_action('M2') == 'noop'

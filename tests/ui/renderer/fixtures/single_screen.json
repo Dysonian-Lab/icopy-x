@@ -1,0 +1,7 @@
+{
+  "screen": {
+    "title": "Main Page",
+    "content": {"type": "list"},
+    "keys": {"UP": "scroll:-1", "DOWN": "scroll:1", "OK": "select"}
+  }
+}
