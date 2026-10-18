@@ -245,8 +245,9 @@ class Station:
             self.key('OK', fixture['start_texts'])
             if cancel:
                 self.wait(fixture['busy_texts'], 15)
+                cancel_started = time.monotonic()
                 self.key('PWR', fixture['busy_texts'])
-                self.wait(fixture['start_texts'], 5)
+                self.wait(fixture['start_texts'], 5 - (time.monotonic() - cancel_started))
                 cancelled = self.call('dumps')
                 if cancelled != before:
                     raise ValueError('Cancellation changed the dump inventory')

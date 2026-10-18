@@ -213,6 +213,32 @@ def test_late_successful_observation_cannot_pass_recovery_deadline(controller, m
         controller.wait(['Read successful'], 5)
 
 
+def test_cancel_deadline_includes_delayed_input_acknowledgement(controller, fixture, monkeypatch):
+    fixture.update(start_texts=['Selected Classic 1K'], busy_texts=['Reading...'])
+    controller.transport.screen = fixture['start_texts']
+    clock = [0]
+    original_call = controller.transport.call
+
+    def call(session, operation, **kwargs):
+        if operation == 'key':
+            if kwargs['key'] == 'PWR':
+                clock[0] += 6  # Input may run promptly; its SSH reply is late.
+                controller.transport.screen = fixture['start_texts']
+            else:
+                if clock[0]:
+                    pytest.fail('Late cancellation acknowledgement incorrectly permitted another read')
+                controller.transport.screen = fixture['busy_texts']
+        result = original_call(session, operation, **kwargs)
+        return {} if operation == 'dumps' else result
+
+    monkeypatch.setattr(controller.transport, 'call', call)
+    monkeypatch.setattr(station.time, 'monotonic', lambda: clock[0])
+    with pytest.raises(TimeoutError, match='UI deadline'):
+        controller.read_card(fixture, cancel=True)
+    assert controller.state['cases'][-1]['status'] == 'HARNESS_ERROR'
+    assert [data['key'] for operation, data in controller.transport.calls if operation == 'key'] == ['OK', 'PWR']
+
+
 def test_client_commands_are_fixed_no_shell_or_flash():
     for style in ('factory', 'iceman'):
         args = station.client_args(dict(path='client with spaces.exe', style=style), 'COM9', 'hw version')
