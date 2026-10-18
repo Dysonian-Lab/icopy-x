@@ -102,3 +102,39 @@ Run the runtime smoke twice with new directories before diagnosing application
 failures. The legacy `tools/setup_qemu_env.sh` changes shared machine state and
 is not part of this isolated workflow. Existing flow fixtures still need audit;
 the new environment does not make their expectations authoritative.
+
+## Built IPK smoke test
+
+`tools/test_ipk_qemu.sh` now requires an explicit package and variant. It reads
+the project's ZIP-format IPKs and runs the **extracted package** under ARM
+Python, with no checkout or original application directories on `sys.path`.
+Missing QEMU prerequisites fail; they cannot be counted as successful skips.
+
+```bash
+sudo bash tools/qemu_env.sh /srv/images/factory.img /usr/bin/qemu-arm-static \
+  "$PWD" /srv/runs/package-001 -- bash "$PWD/tools/test_ipk_qemu.sh" \
+  /srv/artifacts/icopy-x-noflash.ipk --variant noflash
+```
+
+Run flash and no-flash artifacts separately, using exact candidate CI outputs.
+Each result retains the IPK digest, extracted-file digests, harness digests,
+PM3/client/Lua/firmware asset digests, imported application module paths/hashes,
+dependency paths and guest logs. Unsafe archive paths, special files, duplicate
+entries, missing/empty required files and incorrect firmware presence fail.
+Asset hashes record identity; they do not alone prove a compatible client/Lua
+pair. Keep the existing build/content checks and configuration-specific tests.
+
+The guest compiles every packaged Python file with device Python 3.8, imports
+core UI/middleware/startup modules, renders the main menu, enters the Read Tag
+type list through activity key dispatch, returns and checks teardown callbacks.
+Tk, Pillow, pygame and fonts are real. It redirects `config._CONF_PATH` to the
+extracted package's data only; it does not mock activity decisions, cryptography,
+process exits or hardware responses. Imported application files must hash-match
+the archive. Runtime dependencies come from the pinned image.
+
+This is a **module/rendering smoke test**, not application startup or installation
+acceptance. It bypasses `app.py`, `main.main()` and `application.startApp()`,
+does not initiate scans or writes, and does not run the packaged PM3 client or
+flash firmware. These remaining boundaries need separate tests. A selected
+package variant describes its contents, not an emulated PM3 firmware version.
+The legacy source-flow launcher remains a different, heavily mocked profile.
