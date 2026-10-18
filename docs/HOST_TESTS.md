@@ -27,7 +27,9 @@ uv run --no-project --python 3.8 --with-requirements tests/requirements-host.txt
 
 CI disables automatic loading of unrelated pytest plugins. Use
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` locally if your environment injects plugins.
-The declared dependencies are pinned to versions supporting Python 3.8.
+Requirements select compatible legacy pins for Python 3.8/3.9 and patched
+modern pins for Python 3.10+. Prefer Python 3.12 locally. The legacy pins retain
+known advisories; see [dependency boundaries and maintenance](TEST_DEPENDENCIES.md).
 
 ## What these tests exercise
 

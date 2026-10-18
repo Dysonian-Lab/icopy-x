@@ -32,6 +32,8 @@ jobs:
     env:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PYTHONIOENCODING: utf-8
+      # Keep legacy pytest off the shared /tmp/pytest-of-user namespace.
+      PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-pytest"
     steps:
       - uses: actions/checkout@v4
         with:

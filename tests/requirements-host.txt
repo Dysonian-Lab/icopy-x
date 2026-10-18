@@ -1,4 +1,7 @@
-# Versions compatible with the device's Python 3.8 baseline.
-pytest==8.3.5
-Pillow==10.4.0
+# Legacy interpreter parity is isolated from the maintained host toolchain.
+# These are test dependencies, not device/IPK dependencies.
+pytest==8.3.5; python_version < "3.10"
+Pillow==10.4.0; python_version < "3.10"
+pytest==9.0.3; python_version >= "3.10"
+Pillow==12.3.0; python_version >= "3.10"
 pyserial==3.5
