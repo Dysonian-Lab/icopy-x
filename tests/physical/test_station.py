@@ -162,6 +162,43 @@ def test_read_requires_fresh_exact_dump_and_card_identity(fixture):
             station.verify_read(before, after, fixture, observed)
 
 
+@pytest.mark.parametrize('cancel,changed_on_cancel', [(False, False), (True, False), (True, True)])
+def test_read_session_requires_dump_and_cancel_then_fresh_read(controller, fixture, monkeypatch,
+                                                             cancel, changed_on_cancel):
+    fixture.update(start_texts=['Selected Classic 1K'], busy_texts=['Reading...'])
+    success = fixture['success_texts'] + ['UID: 01 23 45 67']
+    screens = [fixture['start_texts']]
+    if cancel:
+        screens += [fixture['busy_texts'], fixture['start_texts']]
+    screens += [success, success]
+    actual = {'new.bin': dict(sha256='a' * 64, size=1024, mtime_ns=1)}
+    inventories = [{}] + ([actual if changed_on_cancel else {}] if cancel else []) + [actual]
+    original_call = controller.transport.call
+
+    def call(session, operation, **kwargs):
+        if operation == 'observe':
+            controller.transport.screen = screens.pop(0)
+        result = original_call(session, operation, **kwargs)
+        return inventories.pop(0) if operation == 'dumps' else result
+
+    monkeypatch.setattr(controller.transport, 'call', call)
+    monkeypatch.setattr(station.time, 'sleep', lambda _: None)
+    controller.state['phase'] = 'RETURNED'
+    if changed_on_cancel:
+        with pytest.raises(ValueError, match='Cancellation changed'):
+            controller.read_card(fixture, cancel=True)
+        assert controller.state['cases'][-1]['status'] == 'FAIL'
+        assert not controller.state.get('return_read')
+    else:
+        controller.read_card(fixture, cancel=cancel)
+        case = controller.state['cases'][-1]
+        assert case['status'] == 'PASS' and case['after'] == actual
+        assert controller.state['return_read'] == case['id']
+        assert not screens and not inventories
+    keys = [data['key'] for operation, data in controller.transport.calls if operation == 'key']
+    assert keys == (['OK', 'PWR'] if changed_on_cancel else ['OK', 'PWR', 'OK'] if cancel else ['OK'])
+
+
 def test_ui_failure_with_punctuation_is_detected(controller):
     controller.transport.screen = ['Read Failed!']
     with pytest.raises(ValueError, match='Read Failed'):
