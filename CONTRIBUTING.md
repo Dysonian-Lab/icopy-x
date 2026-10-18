@@ -61,3 +61,5 @@ replace these checks or the maintainer's merge decision.
 References: [host tests](docs/HOST_TESTS.md), [QEMU CI](docs/QEMU_CI.md),
 [physical station](docs/PHYSICAL_TESTING.md), and
 [validated releases](docs/RELEASE_PIPELINE.md).
+See [validation status](docs/VALIDATION_STATUS.md) for current coverage and
+outstanding physical acceptance.
