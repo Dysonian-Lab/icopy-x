@@ -14,7 +14,7 @@ Neither this controller nor QEMU certifies RF behavior for every card family.
 
 ## Setup and enrollment
 
-Use Python 3.8+ and `python -m pip install -r tools/physical/requirements.txt`.
+Use Python 3.10+ on the maintainer station (the remote helper remains Python 3.8 compatible) and `python -m pip install -r tools/physical/requirements.txt`.
 Copy `tools/physical/examples/profile.json` **outside the checkout**. Supply the
 SSH address and an independently verified `SHA256:` host-key fingerprint. Use a
 password environment variable or `key_file`; authentication does not fall back
