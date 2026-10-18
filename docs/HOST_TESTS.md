@@ -70,9 +70,11 @@ marked expected-failure to obtain a green host suite.
 ## Next validation layers
 
 1. Keep the IPK build/package checks, including separate flash/no-flash contents.
-2. Run `tests/flows` in the project's Linux/QEMU environment with the correct
-   ARM root filesystem, Python 3.8, Xvfb and PM3 response fixtures. Review the
-   environment-specific paths in `tools/setup_qemu_env.sh` before using it.
+2. Use the isolated environment in [QEMU_TESTS.md](QEMU_TESTS.md). Establish
+   that the real ARM Python/Tk/font runtime works before diagnosing application
+   failures. The legacy `tools/setup_qemu_env.sh` changes shared machine state;
+   it is not the validation entry point. Existing flow assertions and PM3
+   fixtures still need review before their results become acceptance gates.
 3. Perform device acceptance on both firmware configurations: USB attach/detach,
    decoder read/write/readback, ordinary PM3 operation afterward, and update and
    restart paths. Preserve observed results and firmware identities.
