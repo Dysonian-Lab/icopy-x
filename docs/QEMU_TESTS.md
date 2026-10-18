@@ -141,3 +141,62 @@ does not initiate scans or writes, and does not run the packaged PM3 client or
 flash firmware. These remaining boundaries need separate tests. A selected
 package variant describes its contents, not an emulated PM3 firmware version.
 The legacy source-flow launcher remains a different, heavily mocked profile.
+
+## Contribution and maintenance policy
+
+Contributors do not need a device, a factory image or a QEMU server to submit a
+fix. Start with the commands in [HOST_TESTS.md](HOST_TESTS.md); add a focused
+host regression test for the behavior being changed when it can be exercised
+there. Describe any remaining ARM, packaging or hardware boundary in the PR.
+Maintainers run the relevant QEMU checks against the candidate CI-built IPKs.
+Do not create a separate emulator setup or bespoke shell harness for each PR.
+
+The layers have different responsibilities:
+
+| Layer | Responsibility | Current execution |
+|---|---|---|
+| Host and package checks | Fast logic, translation and flash/no-flash content regressions | Existing GitHub Actions workflows |
+| QEMU harness contracts | Missing results, nonzero exits, timeouts, stale output and invalid archives must fail | Linux host CI; `python -m pytest tests/qemu_runner` |
+| Real ARM runtime and IPK smoke | Device Python, imports, dependencies, real Tk/fonts and packaged UI navigation | Maintainer-operated lab; commands above |
+| Legacy source scenarios | Candidate behavior checks with mocked PM3 responses | Exploratory until each scenario and fixture is audited |
+| Physical acceptance | USB, RF, accessory behavior, firmware and installation on hardware | Selected checks for the changed hardware boundary |
+
+There is **no automatic ARM/QEMU PR job yet**. Passing harness contracts is not
+an emulation run. Likewise, the legacy inventory of 417 scenarios is not 417
+validated behaviors: sampled cases contained stale expectations and incorrect
+menu navigation. Do not make that entire suite a required gate or weaken its
+assertions merely to obtain a green result.
+
+Repository maintainers own the shared environment, image/emulator identities,
+helpers and acceptance profiles. Contributors own the intended behavior and
+regression evidence for their change; a maintainer can supply the lab execution.
+Keep future scenario additions small and reuse shared helpers. Prefer observable
+results and exact command/response expectations over private implementation
+details, arbitrary sleeps or screenshot counts. Screenshots remain diagnostics.
+
+Before promoting a scenario to a required check, record its purpose, supported
+configuration, fixture provenance and maintained entry point. Review where it
+mocks hardware: bypassing the command translation layer cannot validate that
+layer. Confirm the test passes repeatedly from clean state and fails when the
+targeted behavior is deliberately broken. Intentional differences from factory
+firmware need explicit expectations; factory parity is not always the goal.
+
+For acceptance runs, retain source/harness revisions, exact IPK and environment
+hashes, case selection, logs and all failures or skips. Changes to the environment
+need repeat runtime smoke runs plus failure/interruption cleanup checks; changes
+to the package harness need both variants and a deliberately broken package.
+Review changed expectations in the same PR as an intentional behavior change,
+explaining why. Do not automatically regenerate expected outputs to match failures.
+
+Keep the required set small and reliable. A flaky check needs a tracked issue,
+an accountable maintainer and a review deadline; removing it from the gate must
+leave the coverage gap visible. Repair, replace or explicitly retire obsolete
+tests. Revisit the matrix when supported firmware, runtime dependencies or build
+contents change. Unavailable hardware remains pending, not passed.
+
+The next automation step is a maintainer-approved job on a disposable worker
+without credentials or device access, using a pinned environment and exact PR
+artifacts. Run the small runtime/package profile for relevant changes; reserve
+broader audited scenarios for affected areas and scheduled regression runs.
+Do not execute unreviewed PR code with sudo on the shared SSH lab. A model review
+can flag missing coverage and scope creep, but cannot substitute for these checks.

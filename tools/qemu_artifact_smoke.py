@@ -22,6 +22,7 @@ REQUIRED = (
     'res/font/mononoki-Regular.ttf', 'pm3/proxmark3', 'pm3/lua.zip',
 )
 FIRMWARE = 'res/firmware/pm3/manifest.json'
+FIRMWARE_IMAGE = 'res/firmware/pm3/fullimage.elf'
 
 
 def sha256(path):
@@ -60,8 +61,9 @@ def extract_ipk(ipk, destination, variant):
         if variant == 'noflash' and firmware_names:
             raise ValueError('No-flash package contains firmware payloads')
         if variant == 'flash':
-            if FIRMWARE not in names or 'res/firmware/pm3/fullimage.elf' not in names:
-                raise ValueError('Flash package lacks firmware manifest/image')
+            for name in (FIRMWARE, FIRMWARE_IMAGE):
+                if name not in names or archive.getinfo(name).file_size == 0:
+                    raise ValueError('Missing or empty firmware file: ' + name)
             manifest = json.loads(archive.read(FIRMWARE))
             if not isinstance(manifest, dict):
                 raise ValueError('Firmware manifest must be an object')

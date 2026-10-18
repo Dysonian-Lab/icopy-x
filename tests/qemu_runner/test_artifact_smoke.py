@@ -98,6 +98,18 @@ def test_rejects_wrong_firmware_layout(tmp_path, actual, declared):
         artifact.extract_ipk(ipk, tmp_path / 'app', declared)
 
 
+@pytest.mark.parametrize('empty_file', [artifact.FIRMWARE, artifact.FIRMWARE_IMAGE])
+def test_rejects_empty_firmware_before_extracting(tmp_path, empty_file):
+    ipk = tmp_path / 'input.ipk'
+    firmware = {artifact.FIRMWARE: b'{}', artifact.FIRMWARE_IMAGE: b'firmware-fixture'}
+    firmware[empty_file] = b''
+    make_ipk(ipk, extra=firmware.items())
+    destination = tmp_path / 'app'
+    with pytest.raises(ValueError, match='empty firmware'):
+        artifact.extract_ipk(ipk, destination, 'flash')
+    assert not destination.exists()
+
+
 def test_missing_qemu_is_a_failure_not_a_skip(tmp_path, monkeypatch):
     monkeypatch.delenv('ICOPY_QEMU_RUN', raising=False)
     result = subprocess.run([sys.executable, str(TOOL), str(tmp_path / 'absent.ipk'),
