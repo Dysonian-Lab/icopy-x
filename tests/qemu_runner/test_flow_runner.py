@@ -178,3 +178,37 @@ def test_cli_uses_fresh_results_and_propagates_failure(tmp_path, body, exit_code
     assert report['planned'] == 1
     assert report['cases'][0]['status'] == status
     assert report['success'] == (exit_code == 0)
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux display pipe contract')
+def test_display_waits_for_separately_written_newline(tmp_path, monkeypatch):
+    marker = tmp_path / 'newline-ready'
+    xvfb = tmp_path / 'Xvfb'
+    xvfb.write_text('#!/usr/bin/env python3\nimport os,sys,time,pathlib\n'
+                    'fd=int(sys.argv[sys.argv.index("-displayfd")+1])\n'
+                    'os.write(fd, b"987")\ntime.sleep(0.2)\n'
+                    'pathlib.Path(' + repr(str(marker)) + ').touch()\n'
+                    'os.write(fd, b"\\n")\ntime.sleep(30)\n')
+    xvfb.chmod(0o755)
+    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
+    with (tmp_path / 'display.log').open('wb') as log:
+        process, number = runner.start_display(log)
+        try:
+            assert number == ':987'
+            assert marker.exists(), 'Returned before the readiness line was complete'
+            assert process.poll() is None
+        finally:
+            runner.stop_process_group(process)
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux display pipe contract')
+@pytest.mark.parametrize('payload', [b'987', b'bad\n', b'9' * 65 + b'\n'])
+def test_display_rejects_incomplete_or_invalid_messages(tmp_path, monkeypatch, payload):
+    xvfb = tmp_path / 'Xvfb'
+    xvfb.write_text('#!/usr/bin/env python3\nimport os,sys\n'
+                    'os.write(int(sys.argv[sys.argv.index("-displayfd")+1]), ' + repr(payload) + ')\n')
+    xvfb.chmod(0o755)
+    monkeypatch.setenv('PATH', str(tmp_path) + os.pathsep + os.environ['PATH'])
+    with (tmp_path / 'display.log').open('wb') as log:
+        with pytest.raises(RuntimeError):
+            runner.start_display(log)

@@ -78,9 +78,19 @@ def start_display(log):
             stdout=log, stderr=subprocess.STDOUT)
         os.close(writer)
         writer = None
-        if not select.select([reader], [], [], 10)[0]:
-            raise RuntimeError('Xvfb readiness timed out')
-        number = os.read(reader, 64).strip()
+        # Xserver writes the number and newline separately. Closing after the
+        # first read can give its second write EPIPE and kill a ready display.
+        deadline = time.monotonic() + 10
+        message = b''
+        while not message.endswith(b'\n'):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([reader], [], [], remaining)[0]:
+                raise RuntimeError('Xvfb readiness timed out')
+            chunk = os.read(reader, 64)
+            if not chunk or len(message) + len(chunk) > 64:
+                raise RuntimeError('Xvfb readiness message is incomplete or too long')
+            message += chunk
+        number = message[:-1]
         if not number.isdigit() or process.poll() is not None:
             raise RuntimeError('Xvfb did not provide a live display')
         return process, ':' + number.decode('ascii')
