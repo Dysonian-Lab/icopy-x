@@ -149,6 +149,7 @@ def require_text(expected, actual):
 def verify_probe(text, expected):
     require_text(expected, text)
     if re.search(r'chip mismatch|cannot communicate|failed to communicate|device / fw mismatch|'
+                 r'ARM firmware does not match|'
                  r'no proxmark3|unknown command|not connected', text, re.IGNORECASE):
         raise ValueError('PM3 probe reported a compatibility/communication failure')
 

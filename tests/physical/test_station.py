@@ -298,6 +298,7 @@ def test_empty_evidence_marker_cannot_pass():
 
 
 @pytest.mark.parametrize('failure', ['FPGA firmware... chip mismatch', 'Cannot communicate with device',
+                                  'ARM firmware does not match the source at the time the client was compiled',
                                   'Unknown command', 'Device / FW mismatch'])
 def test_banner_plus_compatibility_error_is_not_a_pass(failure):
     with pytest.raises(ValueError, match='compatibility/communication'):
