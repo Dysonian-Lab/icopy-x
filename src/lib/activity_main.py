@@ -5138,6 +5138,39 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
         # Auto-start scan (from binary: onCreate calls startScan immediately)
         self.startScan()
 
+    def onDestroy(self):
+        # Invalidate before cooperative stop: a worker may deliver a final
+        # callback synchronously or already have queued it on the Tk thread.
+        self.life.destroyed = True
+        self._state = self.STATE_CANCELLED
+        self._cancel_fake_progress()
+        if self._progressbar is not None:
+            self._progressbar.dispose()
+            self._progressbar = None
+        scanner, self._scanner = self._scanner, None
+        reader, self._reader = self._reader, None
+        for worker, method in ((scanner, 'scan_stop'), (reader, 'stop')):
+            if worker is not None:
+                try:
+                    getattr(worker, method)()
+                except Exception:
+                    pass
+        super().onDestroy()
+
+    def _dispatchCallback(self, callback):
+        """Deliver worker UI work only while this activity owns its canvas."""
+        if self.life.destroyed:
+            return
+
+        def deliver():
+            if not self.life.destroyed:
+                callback()
+
+        if actstack._root is not None:
+            actstack._root.after(0, deliver)
+        else:
+            deliver()
+
     def onKeyEvent(self, key):
         """State-dependent key dispatch.
 
@@ -5409,26 +5442,21 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
             if self._progressbar is not None:
                 self._progressbar.setProgress(pct)
 
-        try:
-            from lib import actstack
-            if actstack._root is not None:
-                actstack._root.after(0, _update)
-            else:
-                _update()
-        except Exception:
-            pass
+        self._dispatchCallback(_update)
 
     def onScanFinish(self, result):
         """Callback from scan.so — process scan result.
 
         ProgressBar completes to 100% before transitioning.
         """
-        # Defer the actual transition until progress bar completes to 100%
-        self._pending_scan_result = result
-        if self._progressbar is not None:
-            self._progressbar.complete(self._processScanResult)
-        else:
-            self._processScanResult()
+        # Serialize scan delivery and animation with UI exit handling.
+        def accept_result():
+            self._pending_scan_result = result
+            if self._progressbar is not None:
+                self._progressbar.complete(self._processScanResult)
+            else:
+                self._processScanResult()
+        self._dispatchCallback(accept_result)
 
     def _processScanResult(self):
         """Process scan result after progress bar completes."""
@@ -5571,12 +5599,16 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
                                 if self._state != self.STATE_READING:
                                     return  # onReading handled it
                             # onReading never fired — fallback
-                            self._reader = None
-                            if self._got_progress:
-                                self._promptSwapCard()
-                            else:
-                                self._state = self.STATE_READ_FAILED
-                                self._showReadFailed()
+                            def missing_completion():
+                                if self._state != self.STATE_READING:
+                                    return
+                                self._reader = None
+                                if self._got_progress:
+                                    self._promptSwapCard()
+                                else:
+                                    self._state = self.STATE_READ_FAILED
+                                    self._showReadFailed()
+                            self._dispatchCallback(missing_completion)
                             return
                     except Exception:
                         pass
@@ -5591,11 +5623,13 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
 
     def _onReadException(self, *args):
         """Handle read.so exception callback."""
-        self._reader = None
-        if self._progressbar is not None:
-            self._progressbar.hide()
-        self._state = self.STATE_READ_FAILED
-        self._showReadFailed()
+        def failed():
+            self._reader = None
+            if self._progressbar is not None:
+                self._progressbar.hide()
+            self._state = self.STATE_READ_FAILED
+            self._showReadFailed()
+        self._dispatchCallback(failed)
 
     def onReading(self, *args):
         """Callback from read.so — progress and completion.
@@ -5605,7 +5639,7 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
         - Completion dict (has 'success' key): handle read result
         Ground truth: trace_autocopy_mf1k_standard.txt lines 25-105
         """
-        if not args:
+        if not args or self.life.destroyed:
             return
 
         data = args[0] if isinstance(args[0], dict) else {}
@@ -5613,8 +5647,8 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
         # Completion check: 'success' key means read is done.
         # Schedule on Tk main thread — this fires from read background thread.
         if isinstance(data, dict) and 'success' in data:
-            self._cancel_fake_progress()
             def _on_complete():
+                self._cancel_fake_progress()
                 self._reader = None
                 if self._progressbar is not None:
                     self._progressbar.hide()
@@ -5653,19 +5687,10 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
                     self._state = self.STATE_READ_FAILED
                     self._showReadFailed()
 
-            try:
-                from lib import actstack
-                if actstack._root is not None:
-                    actstack._root.after(0, _on_complete)
-                else:
-                    _on_complete()
-            except Exception:
-                _on_complete()
+            self._dispatchCallback(_on_complete)
             return
 
         # Progress update — fires from read background thread
-        self._cancel_fake_progress()
-        self._got_progress = True
         progress = data.get('progress', 0) if isinstance(data, dict) else 0
         action = data.get('action', '') if isinstance(data, dict) else ''
         key_idx = data.get('keyIndex', 0) if isinstance(data, dict) else 0
@@ -5691,20 +5716,15 @@ class AutoCopyActivity(ConsoleMixin, BaseActivity):
             msg = resources.get_str('reading')
 
         def _update():
+            self._cancel_fake_progress()
+            self._got_progress = True
             if self._progressbar is not None:
                 if progress:
                     self._progressbar.setProgress(int(progress))
                 self._progressbar.setMessage(msg)
                 self._progressbar.setTimer(timer)
 
-        try:
-            from lib import actstack
-            if actstack._root is not None:
-                actstack._root.after(0, _update)
-            else:
-                _update()
-        except Exception:
-            pass
+        self._dispatchCallback(_update)
 
     # _onReadComplete removed — dead code from old Reader API.
     # Read completion now handled by onReading() via Reader.call_reading callback.
