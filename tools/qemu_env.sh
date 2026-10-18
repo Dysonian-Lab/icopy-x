@@ -73,16 +73,39 @@ PY
     echo "Run directory: $run"
     # Killing the namespace init also kills its descendants. Loop mounts below
     # use autoclear, so even forced namespace teardown releases their devices.
+    # Bash does not forward a signal sent only to this wrapper while waiting
+    # for unshare. Kill the owned namespace supervisor explicitly; --kill-child
+    # then tears down its PID namespace, including detached test processes.
+    namespace_pid=
+    interrupted=0
+    interrupt_namespace() {
+        interrupted=$1
+        if [ -n "$namespace_pid" ]; then
+            kill -KILL "$namespace_pid" 2>/dev/null || true
+        fi
+    }
+    trap 'interrupt_namespace 130' INT
+    trap 'interrupt_namespace 143' TERM
+    trap 'interrupt_namespace 129' HUP
     set +e
     unshare --mount --pid --fork --kill-child --mount-proc --propagation private \
-        bash "$script" --inside "$run"
+        bash "$script" --inside "$run" &
+    namespace_pid=$!
+    if [ "$interrupted" -ne 0 ]; then interrupt_namespace "$interrupted"; fi
+    wait "$namespace_pid"
     rc=$?
+    if [ "$interrupted" -ne 0 ]; then
+        wait "$namespace_pid" 2>/dev/null
+        rc=$interrupted
+    fi
+    trap - INT TERM HUP
     set -e
-    python3 - "$run" "$rc" <<'PY'
+    python3 - "$run" "$rc" "$interrupted" <<'PY'
 import json, pathlib, sys
 p = pathlib.Path(sys.argv[1], 'environment.json')
 data = json.loads(p.read_text())
-data.update(status='COMMAND_COMPLETED' if sys.argv[2]=='0' else 'COMMAND_FAILED',
+status = 'COMMAND_COMPLETED' if sys.argv[2]=='0' else 'COMMAND_FAILED'
+data.update(status='INTERRUPTED' if sys.argv[3]!='0' else status,
             exit_code=int(sys.argv[2]))
 p.write_text(json.dumps(data, indent=2)+'\n')
 PY

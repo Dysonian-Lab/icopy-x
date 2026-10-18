@@ -73,6 +73,9 @@ separate writable overlays. Its mount/PID namespaces hide the host's `/mnt`
 and `/tmp`; `/mnt/upan` is new scratch data, not the host's shared directory.
 Only the command runs as the original sudo user. Namespace termination kills
 remaining descendants; normal cleanup unmounts the owned mounts in reverse order.
+Signals INT, TERM and HUP sent to the wrapper terminate its owned namespace and
+record `INTERRUPTED`. Killing only the outer shell with SIGKILL cannot run this
+handler: a supervisor must terminate the owned process group for forced stops.
 There are no package installations or edits to the original image/checkout.
 
 The overlays deliberately use `xino=off`: with encoded 64-bit overlay inodes,
