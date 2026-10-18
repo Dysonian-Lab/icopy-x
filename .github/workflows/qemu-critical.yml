@@ -40,6 +40,8 @@ jobs:
           python-version: '3.8'
       - run: python -m pip install pytest==8.3.5
       - run: python -m pytest tests/qemu_ci tests/qemu_runner -q
+        env:
+          PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-qemu-contracts"
 
   identify:
     if: github.event_name != 'pull_request'

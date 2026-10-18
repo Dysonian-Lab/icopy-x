@@ -3,31 +3,36 @@
 The default pytest suite (`tests/ui`) runs on a development computer. It does
 not require an iCopy-XS, a USB decoder, or QEMU. The separate `Host tests`
 workflow runs it for PRs and main pushes on Linux/Python 3.8 and 3.12, and
-Windows/Python 3.8. It also runs packaging and maintainer-station contracts.
+Windows/Python 3.8. It also runs packaging, release-gate and maintainer-station contracts.
 `tests/physical` uses simulated transports and temporary files; it does not
 connect to a real device. Its Linux-only device-helper contracts are skipped
 on Windows. See [the physical station runbook](PHYSICAL_TESTING.md).
 
 ## Running the suite
 
-Use an isolated environment; Python 3.8 matches the device interpreter:
+Use Python 3.12 in an isolated environment for normal development. CI retains
+Python 3.8 parity with the device interpreter:
 
 ```text
 python -m venv ../icopy-x-host-tests-env
 # Activate the environment using your shell's activation script.
 python -m pip install -r tests/requirements-host.txt
-python -m pytest tests/ui
+python -m pytest tests/ui tests/build tests/physical tests/release_ci tests/test_build_ipk_contracts.py
 ```
 
 Alternatively, with uv installed:
 
 ```text
-uv run --no-project --python 3.8 --with-requirements tests/requirements-host.txt python -m pytest tests/ui
+uv run --no-project --python 3.12 --with-requirements tests/requirements-host.txt python -m pytest tests/ui tests/build tests/physical tests/release_ci tests/test_build_ipk_contracts.py
 ```
 
 CI disables automatic loading of unrelated pytest plugins. Use
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` locally if your environment injects plugins.
-The declared dependencies are pinned to versions supporting Python 3.8.
+Requirements select compatible legacy pins for Python 3.8/3.9 and patched
+modern pins for Python 3.10+. Prefer Python 3.12 locally. The legacy pins retain
+known advisories; see [dependency boundaries and maintenance](TEST_DEPENDENCIES.md).
+Use `--python 3.8` only when reproducing that compatibility job in an isolated
+environment. A targeted `python -m pytest tests/ui` remains useful during UI work.
 
 ## What these tests exercise
 
