@@ -205,6 +205,8 @@ def test_ssh_pin_deadline_and_both_output_streams(monkeypatch, wrong_pin, never_
     channel.exit_status_ready = lambda: not never_completes
     channel.recv_exit_status = lambda: 0
     def connect(*args, **kwargs):
+        assert kwargs['disabled_algorithms'] == {
+            'keys': ['ssh-rsa', 'ssh-dss'], 'pubkeys': ['ssh-rsa', 'ssh-dss']}
         client.policy.missing_host_key(client, 'device', key)
     def execute(command, timeout):
         client.commands.append(command)

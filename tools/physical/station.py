@@ -63,6 +63,8 @@ class SSH:
                            username=self.profile['user'], password=password,
                            key_filename=self.profile.get('key_file'),
                            look_for_keys=False, allow_agent=False,
+                           disabled_algorithms={'keys': ['ssh-rsa', 'ssh-dss'],
+                                                'pubkeys': ['ssh-rsa', 'ssh-dss']},
                            timeout=8, auth_timeout=8, banner_timeout=8)
             _, stdout, _ = client.exec_command(command, timeout=35)
             channel = stdout.channel

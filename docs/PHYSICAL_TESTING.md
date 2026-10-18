@@ -19,6 +19,10 @@ Copy `tools/physical/examples/profile.json` **outside the checkout**. Supply the
 SSH address and an independently verified `SHA256:` host-key fingerprint. Use a
 password environment variable or `key_file`; authentication does not fall back
 to arbitrary local keys or agent identities. Never add credentials to the repo.
+RSA/SHA-1 and DSA signatures are explicitly disabled for both host and client
+authentication. The observed device uses an Ed25519 host key. A legacy-only SSH
+server is refused rather than silently weakening this policy. The station uses Paramiko 5.1.0 and also blocks these algorithms explicitly at
+connection setup.
 
 All examples below abbreviate this command as `station`:
 
