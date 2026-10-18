@@ -1,0 +1,10 @@
+{
+  "uid": "REPLACE_WITH_PRIVATE_CARD_UID",
+  "start_texts": ["REPLACE_WITH_EXACT_SELECTED_READ_TYPE_SCREEN_TEXT"],
+  "busy_texts": ["REPLACE_WITH_OBSERVED_SCAN_OR_READ_TEXT"],
+  "success_texts": ["Read successful", "File saved"],
+  "suffix": ".bin",
+  "size": 1024,
+  "sha256": "REPLACE_WITH_INDEPENDENTLY_VERIFIED_DUMP_SHA256",
+  "timeout": 150
+}

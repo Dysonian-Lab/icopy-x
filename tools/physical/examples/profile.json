@@ -1,0 +1,17 @@
+{
+  "host": "192.0.2.1",
+  "port": 22,
+  "user": "root",
+  "password_env": "ICOPY_DEVICE_PASSWORD",
+  "ssh_sha256": "SHA256:REPLACE_WITH_INDEPENDENTLY_VERIFIED_HOST_KEY",
+  "machine_id": "REPLACE_FROM_INSPECTION",
+  "application_files": {},
+  "usb": {"vid": 0, "pid": 0, "serial": "REPLACE_FROM_DEVICE_ENUMERATION"},
+  "client": {
+    "path": "C:/private/matching-client/proxmark3.exe",
+    "sha256": "REPLACE_WITH_VERIFIED_COMPANION_CLIENT_SHA256",
+    "style": "iceman",
+    "version_contains": ["REPLACE_WITH_EXPECTED_DEVICE_FIRMWARE_AND_FPGA_IDENTIFIERS"],
+    "status_contains": ["REPLACE_WITH_EXPECTED_DEVICE_STATUS_RESPONSE"]
+  }
+}
