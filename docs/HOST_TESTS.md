@@ -3,7 +3,10 @@
 The default pytest suite (`tests/ui`) runs on a development computer. It does
 not require an iCopy-XS, a USB decoder, or QEMU. The separate `Host tests`
 workflow runs it for PRs and main pushes on Linux/Python 3.8 and 3.12, and
-Windows/Python 3.8. The IPK build/release workflow is unchanged.
+Windows/Python 3.8. It also runs packaging and maintainer-station contracts.
+`tests/physical` uses simulated transports and temporary files; it does not
+connect to a real device. Its Linux-only device-helper contracts are skipped
+on Windows. See [the physical station runbook](PHYSICAL_TESTING.md).
 
 ## Running the suite
 
