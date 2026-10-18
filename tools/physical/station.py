@@ -146,6 +146,13 @@ def require_text(expected, actual):
         raise ValueError('Required evidence missing')
 
 
+def verify_probe(text, expected):
+    require_text(expected, text)
+    if re.search(r'chip mismatch|cannot communicate|failed to communicate|device / fw mismatch|'
+                 r'no proxmark3|unknown command|not connected', text, re.IGNORECASE):
+        raise ValueError('PM3 probe reported a compatibility/communication failure')
+
+
 def verify_read(before, after, fixture, observed):
     require_text(fixture['success_texts'], observed)
     uid = re.sub('[^0-9A-F]', '', fixture['uid'].upper())
@@ -273,9 +280,9 @@ class Station:
         self.state.update(phase='SERIAL_ATTEMPTED', usb=port, uncertain_action=None)
         self.store()
         text = run_client(self.profile['client'], port['device'], 'hw version', self.directory / 'pc-version.txt')
-        require_text(self.profile['client']['version_contains'], text)
+        verify_probe(text, self.profile['client']['version_contains'])
         text = run_client(self.profile['client'], port['device'], 'hw status', self.directory / 'pc-status.txt')
-        require_text(self.profile['client']['status_contains'], text)
+        verify_probe(text, self.profile['client']['status_contains'])
         self.state.update(phase='USB_TESTED', pc_status='AWAITING_RETURN')
         self.store()
 

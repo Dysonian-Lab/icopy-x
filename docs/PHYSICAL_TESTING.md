@@ -104,7 +104,9 @@ and a known read fixture. Start a session and perform one normal `read` first.
    The station selects one newly enumerated matching serial port, verifies the
    host executable hash, and runs only `hw version` and `hw status`, each bounded
    to 30 seconds. Exit zero alone is insufficient: expected response identifiers
-   must be present. No client script or automatic firmware flashing is invoked.
+   must be present, and known communication/FPGA mismatch errors are rejected
+   even if the expected version banner was printed. No client script or
+   automatic firmware flashing is invoked.
 4. Use the physical button to stop/exit PC mode. Restore the Ethernet hub and
    wait for connectivity, then run `pc-return --operator-confirmed`. This checks
    machine/boot/application identity, active service, captures the screen and

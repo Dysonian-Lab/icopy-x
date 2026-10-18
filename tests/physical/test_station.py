@@ -250,3 +250,10 @@ def test_timed_out_client_is_killed_and_reaped(tmp_path, monkeypatch):
 def test_empty_evidence_marker_cannot_pass():
     with pytest.raises(ValueError):
         station.require_text([''], 'unrelated client banner')
+
+
+@pytest.mark.parametrize('failure', ['FPGA firmware... chip mismatch', 'Cannot communicate with device',
+                                  'Unknown command', 'Device / FW mismatch'])
+def test_banner_plus_compatibility_error_is_not_a_pass(failure):
+    with pytest.raises(ValueError, match='compatibility/communication'):
+        station.verify_probe('expected FPGA identifier\n' + failure, ['expected FPGA identifier'])
