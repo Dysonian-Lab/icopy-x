@@ -9,6 +9,13 @@ data, binaries or Iceman build metadata fails packaging rather than shipping a
 partial archive. The candidate bundle is built on PRs, not first discovered at
 release time.
 
+A weekly Monday build also resolves the current upstream PM3 release and runs
+this build/QEMU chain without release intent. Its failures expose patch, compiler
+or packaging drift even when no PR is open. Maintainers should subscribe to
+GitHub Actions failure notifications. This does not prove that a new upstream
+client's real RF responses still match every parser: those boundaries retain
+their fixture and physical acceptance requirements.
+
 Publication follows this chain:
 
 1. **Build iCopy-X IPK** completes successfully. It cannot create tags/releases.

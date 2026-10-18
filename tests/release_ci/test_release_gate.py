@@ -43,6 +43,7 @@ def clients(variant, missing='', bad_commit=False):
     ('pull_request', 'refs/pull/9/merge', 'v1.2.3', ''),
     ('push', 'refs/tags/v1.2.3', '', 'v1.2.3'),
     ('workflow_dispatch', 'refs/heads/main', 'v1.2.3-rc.1', 'v1.2.3-rc.1'),
+    ('schedule', 'refs/heads/main', 'v1.2.3', ''),
     ('workflow_dispatch', 'refs/heads/main', '', '')])
 def test_release_intent(event, ref, requested, expected):
     assert bundle.release_tag(event, ref, requested) == expected

@@ -30,7 +30,7 @@ def api(path, payload=None):
 def validate_run(run, run_id):
     if (run.get('id') != run_id or run.get('repository', {}).get('full_name') != REPOSITORY or
             run.get('path') != '.github/workflows/build-ipk.yml' or run.get('status') != 'completed' or
-            run.get('event') not in ('pull_request', 'push', 'workflow_dispatch') or
+            run.get('event') not in ('pull_request', 'push', 'workflow_dispatch', 'schedule') or
             not re.fullmatch('[0-9a-f]{40}', run.get('head_sha', ''))):
         raise ValueError('Not a completed build from the expected repository/workflow')
     return run

@@ -181,7 +181,7 @@ def validate(qemu_id, output):
     if type(tested['build_run_id']) is not int or tested['build_run_id'] < 1:
         raise ValueError('Invalid tested build ID')
     build = api('actions/runs/' + str(tested['build_run_id']))
-    successful_run(build, '.github/workflows/build-ipk.yml', ('pull_request', 'push', 'workflow_dispatch'))
+    successful_run(build, '.github/workflows/build-ipk.yml', ('pull_request', 'push', 'workflow_dispatch', 'schedule'))
     if (tested['build_run_id'] != build['id'] or tested['head_sha'] != build['head_sha'] or tested['build_attempt'] != build['run_attempt'] or
             tested['event'] != build['event'] or tested['build_conclusion'] != 'success'):
         raise ValueError('QEMU evidence belongs to another build/attempt')

@@ -5,6 +5,9 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  # Exercise upstream drift even when no contributor PR is open. Build only.
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
     inputs:
       pm3_tag:
