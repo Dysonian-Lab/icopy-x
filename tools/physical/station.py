@@ -106,7 +106,7 @@ def select_port(before, current, usb):
 
 def client_args(client, port, command):
     # No arbitrary commands, scripts, shell or automatic flashing.
-    if command not in ('hw version', 'hw status', 'hf 14a reader', 'lf em 410xread', 'lf em 410x reader'):
+    if command not in ('hw version', 'hw status'):
         raise ValueError('Command is not in the read-only allowlist')
     if client['style'] == 'iceman':
         return [client['path'], '-p', port, '-c', command]
