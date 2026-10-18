@@ -77,7 +77,10 @@ representation; timestamp-bearing formats need a future semantic validator.
   texts and exactly one newly written matching dump of the correct size/hash.
 * `cancel-read --fixture /private/card.json` cancels when the selected busy screen
   is observed, requires return within five seconds without a changed dump, then
-  performs a complete fresh read. This is a UI-phase cancellation test; it does
+  performs a complete fresh read. The five seconds start before requesting PWR,
+  so a delayed input acknowledgement cannot restart the recovery clock. SSH and
+  observation latency count towards this bound; it is not pure device UI latency.
+  This is a UI-phase cancellation test; it does
   not prove which RF command was active. QEMU/host tests supply deterministic
   transport-fault coverage. Precise wire-phase cancellation remains separate.
 * Repeat after returning to the selected type. A failed/missing response, wrong
