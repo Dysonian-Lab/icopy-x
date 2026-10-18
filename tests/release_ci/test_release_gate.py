@@ -25,7 +25,8 @@ def clients(variant, missing='', bad_commit=False):
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as archive:
         for platform in ('linux', 'windows', 'macos'):
-            binary = platform + ('/proxmark3.exe' if platform == 'windows' else '/proxmark3')
+            binary = platform + (('/proxmark3.exe' if variant == 'flash' else '/client.exe')
+                                 if platform == 'windows' else '/proxmark3')
             archive.writestr(binary, b'binary')
             if variant == 'flash':
                 archive.writestr(platform + '/pm3_client_build.json', json.dumps(dict(

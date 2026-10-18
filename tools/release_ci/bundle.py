@@ -39,7 +39,8 @@ def check_clients(path, variant, pm3_commit):
             raise ValueError('Unsafe or duplicate companion path')
         for platform in ('linux', 'windows', 'macos'):
             prefix = platform + '/'
-            binary = prefix + ('proxmark3.exe' if platform == 'windows' else 'proxmark3')
+            binary = prefix + (('proxmark3.exe' if variant == 'flash' else 'client.exe')
+                               if platform == 'windows' else 'proxmark3')
             if binary not in names or not 0 < archive.getinfo(binary).file_size < 64 * 1024**2:
                 raise ValueError('Missing/oversized companion binary: ' + binary)
             directories = ('lualibs', 'luascripts', 'resources', 'dictionaries') if variant == 'flash' else ('lualibs', 'luascripts')

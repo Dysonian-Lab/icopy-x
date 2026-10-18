@@ -40,5 +40,5 @@ Connect to your iCopy-X's Proxmark module directly from your computer.
 2. Extract to a folder on your computer
 3. Put your iCopy-X into PC-Mode
 4. Connect via USB
-5. Run: `proxmark3 /dev/ttyACM0` (Linux/macOS) or `proxmark3.exe COMx` (Windows)
+5. Run: `proxmark3 /dev/ttyACM0` (Linux/macOS), `proxmark3.exe COMx` (Windows flash client), or `client.exe COMx` (Windows factory/no-flash client).
 Adjust `ttyACM0` and `COMx` according to the real port assigned to your iCopy-X.
