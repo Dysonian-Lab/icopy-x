@@ -1,0 +1,73 @@
+name: Publish validated release
+
+on:
+  workflow_run:
+    workflows: ['Critical QEMU validation']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      qemu_run_id:
+        description: 'Successful QEMU run to validate (dry run; never publishes)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.event.workflow_run.id || inputs.qemu_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      release_tag: ${{ steps.validate.outputs.release_tag }}
+    steps:
+      # Trusted default-branch code; never execute a downloaded candidate.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QEMU_RUN_ID: ${{ github.event.workflow_run.id || inputs.qemu_run_id }}
+        run: python3 tools/release_ci/publish.py --qemu-run-id "$QEMU_RUN_ID" --output "$RUNNER_TEMP/release-validation"
+      - name: Retain validation record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-validation
+          path: |
+            ${{ runner.temp }}/release-validation/validation.json
+            ${{ runner.temp }}/release-validation/release-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: validate
+    if: github.event_name == 'workflow_run' && needs.validate.outputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: validated-release
+    concurrency:
+      group: release-tag-${{ needs.validate.outputs.release_tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Revalidate and publish the exact tested assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QEMU_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python3 tools/release_ci/publish.py --qemu-run-id "$QEMU_RUN_ID" --output "$RUNNER_TEMP/publish" --publish

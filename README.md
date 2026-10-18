@@ -177,13 +177,18 @@ Once your device is reflashed and booting, you can apply the Open Source IPKs.
   - Noralsy
   - Original iCopy-X Gen1a tags appear to be undetectable. __This is not a bug!__ Curiously, for some reason - the device's read range is enhanced on iceman's release. You may need to have a gap of up to 2cm above the device for stable reading! Anything closer over saturates the reader/tag.
 - "Flash" version is built directly from the latest tagged release of the iceman repo. If an update changes command syntax or responses, this will break functionality on the iCopy-X device. Our goal was to get the device running on latest iceman. There's a full CI/CD build pipeline, allowing you to mix and match your own proxmark versions. However keeping the iCopy-X's compatibility layer mapped to changes in the iceman repo is up to the community.
-- "Flow Tests" - the backbone of this project - are not passing as of the official release. After the project got 1:1 parity with the original middleware, these decoupled. In an ideal world - these should be made to work (and also be made to mock the iceman firmware+client responses). They're an excellent tool for ensuring stability across the entire codebase.
+- The large legacy "Flow Tests" inventory still needs case-by-case rehabilitation. Current PRs are gated by maintained host tests and exact-package QEMU critical flows for both firmware profiles; those do not imply the entire legacy inventory passes. See [validation boundaries](docs/HOST_TESTS.md) and [QEMU CI](docs/QEMU_CI.md).
 - **ICS Decoder**: See [accessory requirements and limitations](ICSDecoder.md#compatibility-and-limitations).
 
 ## Disclaimer
 
 There are multiple hardware revisions of the iCopy-X.
 Testing was performed against the first revision, but should work on all revisions.
+
+For current development, see [contributor checks and review policy](CONTRIBUTING.md),
+[maintainer physical testing](docs/PHYSICAL_TESTING.md), and the
+[validated release pipeline](docs/RELEASE_PIPELINE.md). Physical hardware and
+accessory coverage is recorded separately from host/QEMU results.
 
 ## Wait! There's a .so file! You said there's no closed source!
 This is the jailbreak - the vanilla firmware requires a valid `version.so` to process an IPK.

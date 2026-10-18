@@ -28,6 +28,12 @@ def test_wrong_build_identity_rejected(run, change):
         build.validate_run(run, 12)
 
 
+def test_scheduled_main_build_is_validated_without_a_pull_request(run):
+    run.update(event='schedule', pull_requests=[])
+    assert build.validate_run(run, 12) is run
+    assert build.current_pulls(run) == []
+
+
 def test_current_head_required_and_missing_fork_association_resolved(run):
     pull = dict(number=55, state='open', base=dict(ref='main', repo=dict(full_name=build.REPOSITORY)),
                 head=dict(sha=run['head_sha']))
