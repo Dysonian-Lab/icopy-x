@@ -12,9 +12,12 @@ on:
         required: false
         default: ''
       release_tag:
-        description: 'Existing iCopy-X tag to build & release (e.g. v1.1.2). Leave empty for a build-only run.'
+        description: 'Release tag for this selected revision (e.g. v1.1.2). Publication waits for host and QEMU validation.'
         required: false
         default: ''
+
+permissions:
+  contents: read
 
 env:
   PM3_REPO: https://github.com/RfidResearchGroup/proxmark3.git
@@ -52,37 +55,21 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
-  ensure-tag:
-    name: Ensure Release Tag
+  verify-source:
+    name: Verify Release Source
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      release_tag: ${{ steps.intent.outputs.release_tag }}
     steps:
-      - name: Create release tag if it does not exist
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: intent
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.release_tag }}
-        run: |
-          # Only relevant for manual runs that supply a release_tag. Tag pushes
-          # already point at a real tag, so there is nothing to create here.
-          if [ -z "$TAG" ]; then
-            echo "No release_tag input — nothing to create."
-            exit 0
-          fi
-
-          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists — the build will check it out as-is."
-            exit 0
-          fi
-
-          # Create the tag at the commit this workflow was dispatched from
-          # (HEAD of the selected branch). Using GITHUB_TOKEN here does NOT
-          # trigger the on:push:tags workflow, so there is no double build.
-          echo "Tag $TAG not found — creating it at ${{ github.sha }} (branch ${{ github.ref_name }})."
-          gh api --method POST "repos/${{ github.repository }}/git/refs" \
-            -f "ref=refs/tags/$TAG" \
-            -f "sha=${{ github.sha }}"
-          echo "Created tag $TAG."
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: python3 tools/release_ci/bundle.py intent
 
   test:
     name: Verify IPK Contents
@@ -91,7 +78,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -245,7 +233,7 @@ jobs:
 
   cross-compile-pm3:
     name: Cross-compile Proxmark3 Client
-    needs: [resolve-pm3-tag, ensure-tag]
+    needs: [resolve-pm3-tag, verify-source]
     runs-on: ubuntu-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
@@ -253,7 +241,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Cross-compile PM3 client for iCopy-X (Docker ubuntu:16.04)
         run: |
@@ -356,7 +345,7 @@ jobs:
 
   cross-compile-pm3-firmware:
     name: Cross-compile PM3 Firmware (fullimage)
-    needs: [resolve-pm3-tag, ensure-tag]
+    needs: [resolve-pm3-tag, verify-source]
     runs-on: ubuntu-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
@@ -364,7 +353,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Install ARM cross-compiler and PM3 build deps
         run: |
@@ -405,7 +395,7 @@ jobs:
 
   build-iceman-client-linux:
     name: Iceman PM3 Client (Linux x86_64)
-    needs: [resolve-pm3-tag, ensure-tag]
+    needs: [resolve-pm3-tag, verify-source]
     runs-on: ubuntu-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
@@ -413,7 +403,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -448,7 +439,7 @@ jobs:
 
   build-iceman-client-windows:
     name: Iceman PM3 Client (Windows x86_64)
-    needs: [resolve-pm3-tag, ensure-tag]
+    needs: [resolve-pm3-tag, verify-source]
     runs-on: windows-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
@@ -459,7 +450,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -508,7 +500,7 @@ jobs:
 
   build-iceman-client-macos:
     name: Iceman PM3 Client (macOS)
-    needs: [resolve-pm3-tag, ensure-tag]
+    needs: [resolve-pm3-tag, verify-source]
     runs-on: macos-latest
     env:
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
@@ -516,7 +508,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Install dependencies
         run: brew install readline pkg-config openssl lz4
 
@@ -550,7 +543,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Download PM3 client
         uses: actions/download-artifact@v4
@@ -604,21 +598,19 @@ jobs:
           name: icopy-x-noflash-ipk
           path: icopy-x-noflash.ipk
 
-  release:
-    name: Create Release
-    needs: [resolve-pm3-tag, build-ipk, build-iceman-client-linux, build-iceman-client-windows, build-iceman-client-macos]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}
+  release-assets:
+    name: Package Release Assets
+    needs: [verify-source, resolve-pm3-tag, build-ipk, build-iceman-client-linux, build-iceman-client-windows, build-iceman-client-macos]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
-      RELEASE_TAG: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+      RELEASE_TAG: ${{ needs.verify-source.outputs.release_tag }}
       PM3_TAG: ${{ needs.resolve-pm3-tag.outputs.pm3_tag }}
       PM3_COMMIT: ${{ needs.resolve-pm3-tag.outputs.pm3_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Download flash IPK
         uses: actions/download-artifact@v4
@@ -687,57 +679,18 @@ jobs:
           echo "=== clients-noflash.zip layout ===" && find . -maxdepth 2 -type d | sort
           echo "=== per-platform sizes ===" && du -sh /tmp/clients-noflash/*/ | sort
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Record exact asset identity
+        run: python3 tools/release_ci/bundle.py manifest
+
+      - name: Retain complete release candidate
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: |
+          name: release-candidate
+          path: |
             icopy-x-flash.ipk
             icopy-x-noflash.ipk
             clients-flash.zip
             clients-noflash.zip
-          body: |
-            ## iCopy-X Open Source Firmware ${{ env.RELEASE_TAG }}
-
-            ### Two IPK variants
-
-            | File | PM3 firmware | LUA scripts | Use when |
-            |------|-------------|-------------|----------|
-            | `icopy-x-flash.ipk` | RRG/Iceman (included) | Lua 5.4 (iceman) | You want the latest PM3 client + firmware |
-            | `icopy-x-noflash.ipk` | Unchanged (factory) | Lua 5.1 (factory) | You want to keep your current PM3 version |
-
-            ### Installation
-
-            1. Ensure that your device is up to date (1.0.90 - get it from here: https://icopyx.com/pages/update-your-icopy-x)
-            2. Download the IPK of your choice
-            3. Put your iCopy-X into PC-Mode
-            4. Delete ALL OTHER IPK files from the device
-            5. Transfer the IPK onto your device and close PC-Mode
-            6. Navigate to About > Update, and press [OK]
-            7. Device will restart
-            8. While restarting, the screen will flash and stay blank for up to 10 seconds. Don't panic!
-
-            If you're using the "flash" version, there will be some extra steps:
-
-            9. Device will restart and detect that you need to flash your device. Click OK.
-            10. Read the instructions: Make sure your device has charge, make sure it's plugged in, and then Start
-            11. After flashing, your device will restart.
-            12. While restarting, the screen will stay blank for up to 10 seconds. Don't panic!
-
-            ## Companion PM3 Clients (for PC-Mode)
-
-            Connect to your iCopy-X's Proxmark module directly from your computer.
-
-            | File | PM3 version | Contents |
-            |------|------------|----------|
-            | `clients-flash.zip` | RRG/Iceman ${{ env.PM3_TAG }} | Linux x86_64 + macOS + Windows CLI clients |
-            | `clients-noflash.zip` | Factory (iCopy-X original) | Windows client (pre-built) |
-
-            ### Using the companion client
-
-            1. Download the matching `clients-[flash|noflash].zip` for your IPK variant
-            2. Extract to a folder on your computer
-            3. Put your iCopy-X into PC-Mode
-            4. Connect via USB
-            5. Run: `proxmark3 /dev/ttyACM0` (Linux/macOS) or `proxmark3.exe COMx` (Windows)
-            Adjust `ttyACM0` and `COMx` according to the real port assigned to your iCopy-X.
+            release-manifest.json
+          if-no-files-found: error
+          retention-days: 14

@@ -123,10 +123,10 @@ Use GitHub Actions as the expected status source. Verify a new PR receives the
 check automatically before relying on branch protection. A passing status alone
 does not enforce merge policy until the repository rule requires it.
 
-This workflow does not intercept the existing tag-release publication job.
-For release acceptance, validate a build-only candidate before creating the
-release tag. Making publication depend on QEMU would be a separate build/release
-workflow change requiring explicit review.
+Release publication is a separate trusted workflow, triggered after QEMU.
+It verifies the exact build attempt, artifact identities/hashes, complete current
+QEMU profiles and host matrix before publishing the tested assets. See
+[the release pipeline](RELEASE_PIPELINE.md) for source/tag rules and dry runs.
 
 These tests are regression checks, not an attestation that deliberately hostile
 application code cannot forge in-process test outcomes. Maintainer review and

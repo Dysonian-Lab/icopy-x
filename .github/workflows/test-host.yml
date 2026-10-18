@@ -43,8 +43,17 @@ jobs:
           cache-dependency-path: tests/requirements-host.txt
       - name: Install test dependencies
         run: python -m pip install -r tests/requirements-host.txt
+      - name: Validate workflow syntax and expressions
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=
       - name: Run host suite
-        run: python -m pytest tests/ui tests/build tests/physical tests/test_build_ipk_contracts.py --junitxml=host-test-results.xml
+        run: python -m pytest tests/ui tests/build tests/physical tests/release_ci tests/test_build_ipk_contracts.py --junitxml=host-test-results.xml
       - name: Check QEMU runner contracts (no emulation)
         if: runner.os == 'Linux'
         run: python -m pytest tests/qemu_runner --junitxml=qemu-runner-results.xml
