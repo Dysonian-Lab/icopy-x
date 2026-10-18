@@ -220,6 +220,10 @@ class Station:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             observed = self.observe()
+            # A slow SSH observation must not turn a late recovery into a pass.
+            # The transport has its own bound, but the case deadline is tighter.
+            if time.monotonic() >= deadline:
+                raise TimeoutError('UI deadline')
             if any('read failed' in text.lower() for text in observed):
                 raise ValueError('Device reported Read Failed')
             if all(text in observed for text in expected):

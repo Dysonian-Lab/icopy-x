@@ -168,6 +168,14 @@ def test_ui_failure_with_punctuation_is_detected(controller):
         controller.wait(['Read successful'], 1)
 
 
+def test_late_successful_observation_cannot_pass_recovery_deadline(controller, monkeypatch):
+    controller.transport.screen = ['Read successful']
+    clock = iter([0, 0, 6])
+    monkeypatch.setattr(station.time, 'monotonic', lambda: next(clock))
+    with pytest.raises(TimeoutError, match='UI deadline'):
+        controller.wait(['Read successful'], 5)
+
+
 def test_client_commands_are_fixed_no_shell_or_flash():
     for style in ('factory', 'iceman'):
         args = station.client_args(dict(path='client with spaces.exe', style=style), 'COM9', 'hw version')
