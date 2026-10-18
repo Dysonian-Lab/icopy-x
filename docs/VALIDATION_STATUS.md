@@ -83,8 +83,10 @@ partial assets. The release gate keeps draft assets private until every digest
 matches. See [RELEASE_PIPELINE.md](RELEASE_PIPELINE.md) for dry runs and recovery.
 
 The device's old interpreter and pinned runtime remain compatibility constraints;
-passing tests do not remove their dependency advisories. Modern test tooling
-and dependency maintenance are separate from a device-runtime migration.
+passing tests do not remove their dependency advisories. Modern host tooling uses
+patched pins, and Dependabot checks test/station requirements and Actions weekly.
+Legacy dependency alerts remain open; see [TEST_DEPENDENCIES.md](TEST_DEPENDENCIES.md).
+These changes are separate from a device-runtime migration.
 The proposed model reviewer remains advisory future work and is not an active
 CI check. Human scope review is still required, especially for boot/update,
 translation, firmware, Lua selection, USB ownership and build changes.
