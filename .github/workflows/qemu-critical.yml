@@ -31,8 +31,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    env:
-      PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-qemu-contracts"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -42,6 +40,8 @@ jobs:
           python-version: '3.8'
       - run: python -m pip install pytest==8.3.5
       - run: python -m pytest tests/qemu_ci tests/qemu_runner -q
+        env:
+          PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-qemu-contracts"
 
   identify:
     if: github.event_name != 'pull_request'

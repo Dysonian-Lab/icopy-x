@@ -32,8 +32,6 @@ jobs:
     env:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PYTHONIOENCODING: utf-8
-      # Keep legacy pytest off the shared /tmp/pytest-of-user namespace.
-      PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-pytest"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,9 +53,14 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=
       - name: Run host suite
+        env:
+          # Keep legacy pytest off the shared /tmp/pytest-of-user namespace.
+          PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-pytest"
         run: python -m pytest tests/ui tests/build tests/physical tests/release_ci tests/test_build_ipk_contracts.py --junitxml=host-test-results.xml
       - name: Check QEMU runner contracts (no emulation)
         if: runner.os == 'Linux'
+        env:
+          PYTEST_ADDOPTS: --basetemp="${{ runner.temp }}/icopy-qemu-contracts"
         run: python -m pytest tests/qemu_runner --junitxml=qemu-runner-results.xml
       - name: Preserve test results
         if: always()
